@@ -5,8 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -25,10 +29,25 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var speechService: SpeechService? = null
     private var tts: TextToSpeech? = null
     private var isActivated = false
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val resetActivation = Runnable {
+        Log.e("MYVOSK", "Таймаут ожидания команды — сбрасываю")
+        isActivated = false
+    }
 
     override fun onCreate() {
         super.onCreate()
         Log.e("MYVOSK", "0. onCreate сервиса начался")
+
+        // Не даём процессору заснуть при выключенном экране
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "VoiceAssistant::WakeLock"
+        )
+        wakeLock?.acquire()
 
         tts = TextToSpeech(this, this)
         Log.e("MYVOSK", "0a. TTS создан")
@@ -55,6 +74,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
+    // Теперь это настоящий foreground-сервис с типом "microphone"
     private fun showNotification() {
         val channelId = "voice_service_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -68,13 +88,17 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Помощник активен")
-            .setContentText("Слушаю команду 'телефон'...")
+            .setContentText("Скажите 'Телефон' для активации")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
             .build()
 
-        val manager = getSystemService(NotificationManager::class.java)
-        manager?.notify(1, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     private fun initVoskSpeechEngine() {
@@ -124,14 +148,20 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 isActivated = true
                 val commandAfterActivation = text.replace("телефон", "").trim()
                 if (commandAfterActivation.isNotEmpty()) {
+                    // Команда сразу после слова — выполняем и сбрасываем
                     executeCommand(commandAfterActivation)
                     isActivated = false
+                    handler.removeCallbacks(resetActivation)
                 } else {
-                    speakOut("Слушаю")
+                    // Ждём команду — 15 секунд
+                    speakOut("Да?")
+                    handler.removeCallbacks(resetActivation)
+                    handler.postDelayed(resetActivation, 15000L)
                 }
             }
         } else {
             executeCommand(text)
+            handler.removeCallbacks(resetActivation)
             isActivated = false
         }
     }
@@ -152,16 +182,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 speakOut("Сегодня $currentDate")
             }
             else -> {
-                val intent = Intent("VOICE_COMMAND_ACTION")
-                intent.putExtra("COMMAND_TEXT", command)
-                sendBroadcast(intent)
+                // Неизвестная команда — короткий ответ
+                speakOut("Не понял")
             }
         }
     }
 
-    override fun onPartialResult(hypothesis: String?) {
-        Log.e("MYVOSK", "onPartialResult: $hypothesis")
-    }
+    override fun onPartialResult(hypothesis: String?) {}
 
     override fun onFinalResult(hypothesis: String?) {
         Log.e("MYVOSK", "onFinalResult: $hypothesis")
@@ -172,14 +199,17 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     override fun onTimeout() {
-        Log.e("MYVOSK", "onTimeout")
-        isActivated = false
+        Log.e("MYVOSK", "onTimeout (не сбрасываю активацию — жду свой таймер)")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         Log.e("MYVOSK", "onDestroy сервиса")
+        handler.removeCallbacks(resetActivation)
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
         speechService?.stop()
         speechService?.shutdown()
         tts?.stop()
