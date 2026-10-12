@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
+import android.telecom.TelecomManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.vosk.Model
@@ -31,6 +32,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var isActivated = false
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // Для обработки звонков
+    private var awaitingAnswer = false
+    private var ignoreUntil = 0L
+
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable {
         Log.e("MYVOSK", "Таймаут ожидания команды — сбрасываю")
@@ -41,7 +46,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         super.onCreate()
         Log.e("MYVOSK", "0. onCreate сервиса начался")
 
-        // Не даём процессору заснуть при выключенном экране
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -59,6 +63,59 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "0c. onCreate завершён")
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            "INCOMING_CALL" -> {
+                val callerName = intent.getStringExtra("CALLER_NAME") ?: "Неизвестный номер"
+                handleIncomingCall(callerName)
+            }
+            "CALL_ANSWERED" -> {
+                Log.e("MYVOSK", "Звонок принят — останавливаю Vosk")
+                awaitingAnswer = false
+                stopListening()
+            }
+            "CALL_ENDED" -> {
+                Log.e("MYVOSK", "Звонок завершён — возобновляю Vosk")
+                awaitingAnswer = false
+                startListening()
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun handleIncomingCall(callerName: String) {
+        Log.e("MYVOSK", "handleIncomingCall: $callerName")
+        awaitingAnswer = true
+        ignoreUntil = System.currentTimeMillis() + 4000
+        speakOut("Звонит $callerName. Ответить?")
+    }
+
+    private fun acceptCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
+                telecomManager.acceptRingingCall()
+                Log.e("MYVOSK", "Принимаю звонок")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e)
+        }
+    }
+
+    private fun rejectCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
+                telecomManager.endCall()
+                Log.e("MYVOSK", "Отклоняю звонок")
+            } else {
+                Log.e("MYVOSK", "Отклонение требует Android 9+")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e)
+        }
+    }
+
     override fun onInit(status: Int) {
         Log.e("MYVOSK", "onInit TTS, status = $status")
         if (status == TextToSpeech.SUCCESS) {
@@ -74,7 +131,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
-    // Теперь это настоящий foreground-сервис с типом "microphone"
     private fun showNotification() {
         val channelId = "voice_service_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -136,6 +192,17 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
     }
 
+    private fun stopListening() {
+        Log.e("MYVOSK", "stopListening()")
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+            speechService = null
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка stopListening: ${e.message}", e)
+        }
+    }
+
     override fun onResult(hypothesis: String?) {
         Log.e("MYVOSK", "onResult: $hypothesis")
         if (hypothesis == null) return
@@ -143,17 +210,40 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "Распознанный текст: '$text'")
         if (text.isEmpty()) return
 
+        // Игнорируем то, что слышим, пока TTS говорит (эхо от самого себя)
+        if (System.currentTimeMillis() < ignoreUntil) {
+            Log.e("MYVOSK", "Игнорирую (TTS говорит): $text")
+            return
+        }
+
+        // Обработка ответа на звонок
+        if (awaitingAnswer) {
+            if (text.contains("да") || text.contains("ответь") || text.contains("ответить")) {
+                speakOut("Отвечаю")
+                acceptCall()
+                awaitingAnswer = false
+                return
+            }
+            if (text.contains("нет") || text.contains("сбрось") || text.contains("отклони")) {
+                speakOut("Отклоняю")
+                rejectCall()
+                awaitingAnswer = false
+                return
+            }
+            // Другие слова во время звонка игнорируем
+            return
+        }
+
+        // Обычная логика активации
         if (!isActivated) {
             if (text.contains("телефон")) {
                 isActivated = true
                 val commandAfterActivation = text.replace("телефон", "").trim()
                 if (commandAfterActivation.isNotEmpty()) {
-                    // Команда сразу после слова — выполняем и сбрасываем
                     executeCommand(commandAfterActivation)
                     isActivated = false
                     handler.removeCallbacks(resetActivation)
                 } else {
-                    // Ждём команду — 15 секунд
                     speakOut("Да?")
                     handler.removeCallbacks(resetActivation)
                     handler.postDelayed(resetActivation, 15000L)
@@ -182,7 +272,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 speakOut("Сегодня $currentDate")
             }
             else -> {
-                // Неизвестная команда — короткий ответ
                 speakOut("Не понял")
             }
         }
