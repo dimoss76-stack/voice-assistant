@@ -37,6 +37,19 @@ class MainActivity : AppCompatActivity() {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
+        val extraPerms = listOf(
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.ANSWER_PHONE_CALLS,
+            Manifest.permission.CALL_PHONE
+        )
+        for (perm in extraPerms) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(perm)
+            }
+        }
+
         if (permissions.isNotEmpty()) {
             Log.e("MYVOSK", "M1. Нет разрешений, запрашиваю: $permissions")
             statusText.text = "Приложение запущено.\nЗапрашиваю разрешения..."
@@ -52,7 +65,11 @@ class MainActivity : AppCompatActivity() {
         statusText.text = "Разрешения есть.\nЗапускаю сервис..."
         val intent = Intent(this, VoiceService::class.java)
         try {
-            startService(intent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
             Log.e("MYVOSK", "M4. Сервис запущен командой")
         } catch (e: Exception) {
             Log.e("MYVOSK", "M5. Ошибка запуска сервиса: ${e.message}", e)
