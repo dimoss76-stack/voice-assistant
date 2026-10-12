@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download Vosk model
+        run: |
+          mkdir -p app/src/main/assets/model-ru
+          cd app/src/main/assets
+          wget https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+          unzip vosk-model-small-ru-0.22.zip
+          mv vosk-model-small-ru-0.22/* model-ru/
+          rmdir vosk-model-small-ru-0.22
+          rm vosk-model-small-ru-0.22.zip
+          echo "ru-small-0.22" > model-ru/uuid
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.14.6
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
