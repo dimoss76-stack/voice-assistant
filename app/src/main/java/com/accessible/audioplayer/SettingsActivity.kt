@@ -1,11 +1,13 @@
 package com.accessible.audioplayer
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
@@ -26,7 +28,34 @@ class SettingsActivity : AppCompatActivity() {
     private var editDate: EditText? = null
     private var editShutdown: EditText? = null
 
-    private var currentTargetField: EditText? = null
+    private var currentFieldName: String = ""
+
+    private val wordReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != "VOICE_WORD_RECORDED") return
+            val field = intent.getStringExtra("FIELD") ?: return
+            val word = intent.getStringExtra("WORD") ?: ""
+
+            Log.e("MYVOSK", "Получен Broadcast: поле=$field, слово='$word'")
+
+            if (field != currentFieldName) return
+
+            if (word.isNotEmpty()) {
+                val target = when (field) {
+                    "activation" -> editActivation
+                    "confirm" -> editConfirm
+                    "time" -> editTime
+                    "date" -> editDate
+                    "shutdown" -> editShutdown
+                    else -> null
+                }
+                target?.setText(word)
+                statusText.text = "Распознано: $word"
+            } else {
+                statusText.text = "Не расслышал, попробуйте ещё"
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,11 +77,11 @@ class SettingsActivity : AppCompatActivity() {
         editDate?.setText(settings.dateWord)
         editShutdown?.setText(settings.shutdownWord)
 
-        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor(editActivation) }
-        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor(editConfirm) }
-        findViewById<Button>(R.id.btnRecordTime).setOnClickListener { startRecordingFor(editTime) }
-        findViewById<Button>(R.id.btnRecordDate).setOnClickListener { startRecordingFor(editDate) }
-        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor(editShutdown) }
+        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
+        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor("confirm") }
+        findViewById<Button>(R.id.btnRecordTime).setOnClickListener { startRecordingFor("time") }
+        findViewById<Button>(R.id.btnRecordDate).setOnClickListener { startRecordingFor("date") }
+        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor("shutdown") }
 
         btnSave.setOnClickListener {
             settings.activationWord = editActivation?.text.toString()
@@ -65,54 +94,40 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnBack.setOnClickListener { finish() }
+
+        // Регистрируем приём Broadcast
+        val filter = IntentFilter("VOICE_WORD_RECORDED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(wordReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(wordReceiver, filter)
+        }
     }
 
-    private fun startRecordingFor(target: EditText?) {
-        if (target == null) return
-
+    private fun startRecordingFor(fieldName: String) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 200)
             return
         }
 
-        currentTargetField = target
-        Log.e("MYVOSK", "Старт Vosk-записи для поля")
-
-        statusText.text = "Останавливаю помощника…"
-        stopService(Intent(this, VoiceService::class.java))
-
-        Handler(Looper.getMainLooper()).postDelayed({
-            startVoskRecording()
-        }, 800)
-    }
-
-    private fun startVoskRecording() {
+        currentFieldName = fieldName
         statusText.text = "Говорите…"
 
-        val recorder = VoiceRecorder(
-            context = this,
-            onResult = { text ->
-                runOnUiThread {
-                    currentTargetField?.setText(text)
-                    statusText.text = "Распознано: $text"
-                }
-            },
-            onStatus = { msg ->
-                runOnUiThread { statusText.text = msg }
-            },
-            onFinished = {
-                runOnUiThread {
-                    val intent = Intent(this, VoiceService::class.java)
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    Log.e("MYVOSK", "VoiceService перезапущен после записи")
-                }
-            }
-        )
-        recorder.startRecording(5000L)
+        val intent = Intent(this, VoiceService::class.java).apply {
+            action = "RECORD_WORD"
+            putExtra("FIELD", fieldName)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Log.e("MYVOSK", "Отправлена команда RECORD_WORD для поля: $fieldName")
+    }
+
+    override fun onDestroy() {
+        try { unregisterReceiver(wordReceiver) } catch (_: Exception) {}
+        super.onDestroy()
     }
 }
