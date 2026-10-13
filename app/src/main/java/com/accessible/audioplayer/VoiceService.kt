@@ -11,6 +11,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -53,10 +54,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     override fun onCreate() {
         super.onCreate()
+        Log.e("MYVOSK", "0. onCreate сервиса")
         settings = VoiceSettings(this)
+
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceAssistant::WakeLock")
         wakeLock?.acquire()
+
         tts = TextToSpeech(this, this)
         showNotification()
         initVoskSpeechEngine()
@@ -73,7 +77,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             "RECORD_WORD" -> {
                 val fieldName = intent.getStringExtra("FIELD") ?: ""
                 resultReceiver = intent.getParcelableExtra("RECEIVER")
-                Log.e("MYVOSK", "Получена команда записи для поля: $fieldName, receiver=$resultReceiver")
+                Log.e("MYVOSK", "Получена команда записи для поля: $fieldName")
                 startWordRecording(fieldName)
             }
         }
@@ -85,7 +89,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         recordingMode = true
         speakOut("Говорите")
         Log.e("MYVOSK", "Начинаю запись слова для поля: $fieldName")
-
         handler.postDelayed({
             Thread { recordWordThread() }.start()
         }, 1500L)
@@ -206,6 +209,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun speakOut(text: String) {
+        Log.e("MYVOSK", "speakOut: $text")
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         val duration = (text.length * 70L + 1500L).coerceAtLeast(2500L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
@@ -231,46 +235,43 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun initVoskSpeechEngine() {
-    val useLarge = settings.useLargeModel
-    val largeDir = java.io.File(filesDir, "model-large")
-    val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
+        val useLarge = settings.useLargeModel
+        val largeDir = java.io.File(Environment.getExternalStorageDirectory(), "VoiceAssistant/model-large")
+        val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
 
-    if (useLarge && largeReady) {
-        // Загружаем большую модель с диска
-        Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
-        try {
-            val m = Model(largeDir.absolutePath)
-            this.model = m
-            startListening()
-            speakOut("Помощник готов. Использую улучшенную модель")
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
-            // Откатываемся на маленькую
-            loadSmallModel()
-        }
-    } else {
-        // Стандартная модель из assets
-        loadSmallModel()
-    }
-}
-
-private fun loadSmallModel() {
-    Log.e("MYVOSK", "Загружаю стандартную модель")
-    try {
-        StorageService.unpack(this, "model-ru", "model",
-            { m: Model ->
+        if (useLarge && largeReady) {
+            Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
+            try {
+                val m = Model(largeDir.absolutePath)
                 this.model = m
                 startListening()
-                speakOut("Помощник готов")
-            },
-            { exception: IOException ->
-                Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
+                speakOut("Помощник готов. Улучшенная модель")
+            } catch (e: Exception) {
+                Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
+                loadSmallModel()
             }
-        )
-    } catch (e: Exception) {
-        Log.e("MYVOSK", "Исключение: ${e.message}", e)
+        } else {
+            loadSmallModel()
+        }
     }
-}
+
+    private fun loadSmallModel() {
+        Log.e("MYVOSK", "Загружаю стандартную модель")
+        try {
+            StorageService.unpack(this, "model-ru", "model",
+                { m: Model ->
+                    this.model = m
+                    startListening()
+                    speakOut("Помощник готов")
+                },
+                { exception: IOException ->
+                    Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Исключение: ${e.message}", e)
+        }
+    }
 
     private fun startListening() {
         try {
