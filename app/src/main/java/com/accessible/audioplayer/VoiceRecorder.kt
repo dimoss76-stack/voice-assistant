@@ -7,7 +7,11 @@ import android.media.MediaRecorder
 import android.util.Log
 import org.vosk.Model
 import org.vosk.Recognizer
+import org.vosk.android.StorageService
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class VoiceRecorder(
     private val context: Context,
@@ -21,7 +25,6 @@ class VoiceRecorder(
 
     fun startRecording(durationMs: Long = 5000L) {
         isRecording = true
-        onStatus("Говорите…")
 
         recordThread = Thread {
             var audioRecord: AudioRecord? = null
@@ -29,16 +32,43 @@ class VoiceRecorder(
             var model: Model? = null
 
             try {
+                // 1. Проверяем/распаковываем модель
                 val modelDir = File(context.filesDir, "model")
-                if (!modelDir.exists()) {
-                    Log.e("MYVOSK", "Модель не найдена в ${modelDir.absolutePath}")
-                    onStatus("Модель не найдена. Запустите помощника.")
-                    isRecording = false
-                    onFinished()
-                    return@Thread
+                if (!modelDir.exists() || modelDir.list() == null || modelDir.list()!!.isEmpty()) {
+                    onStatus("Готовлю модель (один раз)…")
+                    val latch = CountDownLatch(1)
+                    var unpacked = false
+
+                    StorageService.unpack(
+                        context,
+                        "model-ru",
+                        "model",
+                        { m ->
+                            Log.e("MYVOSK", "Модель распакована для записи")
+                            unpacked = true
+                            latch.countDown()
+                        },
+                        { exception: IOException ->
+                            Log.e("MYVOSK", "Ошибка распаковки модели: ${exception.message}", exception)
+                            latch.countDown()
+                        }
+                    )
+
+                    // Ждём распаковку до 30 секунд
+                    latch.await(30, TimeUnit.SECONDS)
+
+                    if (!unpacked || !modelDir.exists()) {
+                        Log.e("MYVOSK", "Не удалось распаковать модель")
+                        onStatus("Модель недоступна")
+                        isRecording = false
+                        onFinished()
+                        return@Thread
+                    }
                 }
 
-                Log.e("MYVOSK", "Загружаю модель для записи из ${modelDir.absolutePath}")
+                onStatus("Говорите…")
+                Log.e("MYVOSK", "Загружаю модель из ${modelDir.absolutePath}")
+
                 model = Model(modelDir.absolutePath)
                 recognizer = Recognizer(model, 16000.0f)
 
@@ -107,7 +137,6 @@ class VoiceRecorder(
     }
 
     private fun extractText(json: String): String {
-        // Vosk возвращает: {"text" : "внимательно"}
         return try {
             val start = json.indexOf("\"text\"")
             if (start < 0) return ""
