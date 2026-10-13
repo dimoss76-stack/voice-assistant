@@ -108,13 +108,13 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Запрашиваю разрешения..."
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
         } else {
-            statusText.text = "Помощник работает\nВерсия 2026-10-13-v4 (Vosk)"
+            statusText.text = "Помощник работает\nВерсия 2026-10-13-v5 (Запись через сервис)"
             startVoiceService()
         }
     }
 
     private fun startVoiceService() {
-        statusText.text = "Помощник работает\nВерсия 2026-10-13-v4 (Vosk)"
+        statusText.text = "Помощник работает\nВерсия 2026-10-13-v5 (Запись через сервис)"
         val intent = Intent(this, VoiceService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (micGranted) {
-            statusText.text = "Помощник работает\nВерсия 2026-10-13-v4 (Vosk)"
+            statusText.text = "Помощник работает\nВерсия 2026-10-13-v5 (Запись через сервис)"
             startVoiceService()
         } else {
             statusText.text = "Разрешение на микрофон НЕ выдано"
