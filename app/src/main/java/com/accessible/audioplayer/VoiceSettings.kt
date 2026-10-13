@@ -25,4 +25,9 @@ class VoiceSettings(context: Context) {
     var shutdownWord: String
         get() = prefs.getString("shutdown_word", "выключись") ?: "выключись"
         set(value) = prefs.edit().putString("shutdown_word", value.lowercase().trim()).apply()
+
+    // Флаг использования большой модели
+    var useLargeModel: Boolean
+        get() = prefs.getBoolean("use_large_model", false)
+        set(value) = prefs.edit().putBoolean("use_large_model", value).apply()
 }
