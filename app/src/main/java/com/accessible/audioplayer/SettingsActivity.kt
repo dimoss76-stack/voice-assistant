@@ -1,13 +1,12 @@
 package com.accessible.audioplayer
 
 import android.Manifest
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.ResultReceiver
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
@@ -30,13 +29,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private var currentFieldName: String = ""
 
-    private val wordReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != "VOICE_WORD_RECORDED") return
-            val field = intent.getStringExtra("FIELD") ?: return
-            val word = intent.getStringExtra("WORD") ?: ""
+    private val resultReceiver = object : ResultReceiver(Handler()) {
+        override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+            val field = resultData?.getString("FIELD") ?: return
+            val word = resultData.getString("WORD") ?: ""
 
-            Log.e("MYVOSK", "Получен Broadcast: поле=$field, слово='$word'")
+            Log.e("MYVOSK", "ResultReceiver получил: поле=$field, слово='$word'")
 
             if (field != currentFieldName) return
 
@@ -50,9 +48,9 @@ class SettingsActivity : AppCompatActivity() {
                     else -> null
                 }
                 target?.setText(word)
-                statusText.text = "Распознано: $word"
+                statusText.text = "Распознано: $word (можно исправить вручную)"
             } else {
-                statusText.text = "Не расслышал, попробуйте ещё"
+                statusText.text = "Не расслышал, попробуйте ещё раз"
             }
         }
     }
@@ -94,14 +92,6 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnBack.setOnClickListener { finish() }
-
-        // Регистрируем приём Broadcast
-        val filter = IntentFilter("VOICE_WORD_RECORDED")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(wordReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(wordReceiver, filter)
-        }
     }
 
     private fun startRecordingFor(fieldName: String) {
@@ -117,6 +107,7 @@ class SettingsActivity : AppCompatActivity() {
         val intent = Intent(this, VoiceService::class.java).apply {
             action = "RECORD_WORD"
             putExtra("FIELD", fieldName)
+            putExtra("RECEIVER", resultReceiver)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -124,10 +115,5 @@ class SettingsActivity : AppCompatActivity() {
             startService(intent)
         }
         Log.e("MYVOSK", "Отправлена команда RECORD_WORD для поля: $fieldName")
-    }
-
-    override fun onDestroy() {
-        try { unregisterReceiver(wordReceiver) } catch (_: Exception) {}
-        super.onDestroy()
     }
 }
