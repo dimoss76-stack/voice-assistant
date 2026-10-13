@@ -50,22 +50,11 @@ class SettingsActivity : AppCompatActivity() {
         editDate?.setText(settings.dateWord)
         editShutdown?.setText(settings.shutdownWord)
 
-        // Кнопки записи
-        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener {
-            startRecordingFor(editActivation)
-        }
-        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener {
-            startRecordingFor(editConfirm)
-        }
-        findViewById<Button>(R.id.btnRecordTime).setOnClickListener {
-            startRecordingFor(editTime)
-        }
-        findViewById<Button>(R.id.btnRecordDate).setOnClickListener {
-            startRecordingFor(editDate)
-        }
-        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener {
-            startRecordingFor(editShutdown)
-        }
+        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor(editActivation) }
+        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor(editConfirm) }
+        findViewById<Button>(R.id.btnRecordTime).setOnClickListener { startRecordingFor(editTime) }
+        findViewById<Button>(R.id.btnRecordDate).setOnClickListener { startRecordingFor(editDate) }
+        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor(editShutdown) }
 
         btnSave.setOnClickListener {
             settings.activationWord = editActivation?.text.toString()
@@ -79,11 +68,14 @@ class SettingsActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
-        // Инициализируем распознаватель
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
                 setRecognitionListener(createListener())
             }
+            Log.e("MYVOSK", "SpeechRecognizer создан")
+        } else {
+            Log.e("MYVOSK", "SpeechRecognizer НЕДОСТУПЕН")
+            statusText.text = "Распознавание речи недоступно на этом телефоне"
         }
     }
 
@@ -91,7 +83,7 @@ class SettingsActivity : AppCompatActivity() {
         if (target == null) return
 
         if (speechRecognizer == null) {
-            Toast.makeText(this, "Распознавание речи недоступно на этом телефоне", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Распознавание речи недоступно", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -103,12 +95,15 @@ class SettingsActivity : AppCompatActivity() {
 
         currentTargetField = target
         statusText.text = "Говорите…"
+        Log.e("MYVOSK", "Старт записи для поля")
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // Увеличиваем таймауты, чтобы успеть сказать
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
         }
         try {
@@ -121,35 +116,49 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun createListener() = object : android.speech.RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            Log.e("MYVOSK", "Запись: готов слушать")
+            Log.e("MYVOSK", "onReadyForSpeech — готов слушать")
         }
-        override fun onBeginningOfSpeech() {}
+        override fun onBeginningOfSpeech() {
+            Log.e("MYVOSK", "onBeginningOfSpeech — речь началась")
+        }
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {
+            Log.e("MYVOSK", "onEndOfSpeech — речь закончилась")
             statusText.text = "Обрабатываю…"
         }
         override fun onError(error: Int) {
             val msg = when (error) {
-                SpeechRecognizer.ERROR_NO_MATCH -> "Не расслышал, попробуйте ещё"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Тишина. Попробуйте ещё"
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет разрешения на микрофон"
-                else -> "Ошибка распознавания ($error)"
+                SpeechRecognizer.ERROR_AUDIO -> "Ошибка аудио (1)"
+                SpeechRecognizer.ERROR_CLIENT -> "Ошибка клиента (2)"
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет разрешения (3)"
+                SpeechRecognizer.ERROR_NETWORK -> "Проблема с сетью (4)"
+                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Сеть не отвечает (5)"
+                SpeechRecognizer.ERROR_NO_MATCH -> "Не расслышал (6)"
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Распознаватель занят (7)"
+                SpeechRecognizer.ERROR_SERVER -> "Ошибка сервера (8)"
+                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Молчание, не дождался речи (9)"
+                else -> "Неизвестная ошибка ($error)"
             }
+            Log.e("MYVOSK", "onError: $msg")
             statusText.text = msg
-            Toast.makeText(this@SettingsActivity, msg, Toast.LENGTH_SHORT).show()
         }
         override fun onResults(results: Bundle?) {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            Log.e("MYVOSK", "onResults, matches = $matches")
             if (!matches.isNullOrEmpty()) {
                 val text = matches[0].lowercase(Locale("ru")).trim()
                 currentTargetField?.setText(text)
                 statusText.text = "Распознано: $text"
+                Log.e("MYVOSK", "Распознано: '$text'")
             } else {
-                statusText.text = "Не расслышал"
+                statusText.text = "Пустой результат. Попробуйте ещё"
             }
         }
-        override fun onPartialResults(partialResults: Bundle?) {}
+        override fun onPartialResults(partialResults: Bundle?) {
+            val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            Log.e("MYVOSK", "onPartialResults: $partial")
+        }
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
