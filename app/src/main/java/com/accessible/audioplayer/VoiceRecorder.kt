@@ -32,34 +32,48 @@ class VoiceRecorder(
             var model: Model? = null
 
             try {
-                // 1. Проверяем/распаковываем модель
                 val modelDir = File(context.filesDir, "model")
-                if (!modelDir.exists() || modelDir.list() == null || modelDir.list()!!.isEmpty()) {
-                    onStatus("Готовлю модель (один раз)…")
+
+                // Проверяем: есть ли в папке файлы модели
+                val hasModel = modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true
+                Log.e("MYVOSK", "Модель есть: $hasModel, путь: ${modelDir.absolutePath}")
+
+                if (!hasModel) {
+                    onStatus("Готовлю модель (один раз, может занять до 1 минуты)…")
+
+                    // Удаляем старую папку, если она частично есть
+                    if (modelDir.exists()) {
+                        Log.e("MYVOSK", "Удаляю старую папку model")
+                        modelDir.deleteRecursively()
+                    }
+
                     val latch = CountDownLatch(1)
-                    var unpacked = false
+                    var unpackSuccess = false
 
                     StorageService.unpack(
                         context,
                         "model-ru",
                         "model",
                         { m ->
-                            Log.e("MYVOSK", "Модель распакована для записи")
-                            unpacked = true
+                            Log.e("MYVOSK", "unpack success")
+                            unpackSuccess = true
                             latch.countDown()
                         },
                         { exception: IOException ->
-                            Log.e("MYVOSK", "Ошибка распаковки модели: ${exception.message}", exception)
+                            Log.e("MYVOSK", "unpack ERROR: ${exception.message}", exception)
+                            unpackSuccess = false
                             latch.countDown()
                         }
                     )
 
-                    // Ждём распаковку до 30 секунд
-                    latch.await(30, TimeUnit.SECONDS)
+                    // Ждём до 60 секунд
+                    latch.await(60, TimeUnit.SECONDS)
 
-                    if (!unpacked || !modelDir.exists()) {
-                        Log.e("MYVOSK", "Не удалось распаковать модель")
-                        onStatus("Модель недоступна")
+                    val modelNowExists = modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true
+                    Log.e("MYVOSK", "После unpack: modelNowExists=$modelNowExists, unpackSuccess=$unpackSuccess")
+
+                    if (!modelNowExists) {
+                        onStatus("Модель недоступна. Проверьте логи.")
                         isRecording = false
                         onFinished()
                         return@Thread
