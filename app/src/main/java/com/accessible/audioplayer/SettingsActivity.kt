@@ -4,10 +4,13 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.ResultReceiver
+import android.provider.Settings
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
@@ -105,6 +108,20 @@ class SettingsActivity : AppCompatActivity() {
             onDone = { success -> runOnUiThread { updateModelUI(); if (success) statusText.text = "Готово!" } }
         )
 
+        // Запрос разрешения на доступ ко всем файлам (Android 11+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                    statusText.text = "Разрешите доступ к файлам, чтобы скачать модель"
+                } catch (e: Exception) {
+                    Log.e("MYVOSK", "MANAGE_EXTERNAL_STORAGE: ${e.message}", e)
+                }
+            }
+        }
+
         setupModelButtons()
         updateModelUI()
     }
@@ -113,7 +130,7 @@ class SettingsActivity : AppCompatActivity() {
         btnDownloadLarge.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Скачать улучшенную модель?")
-                .setMessage("Размер: 500 МБ. Распакуется до 1.8 ГБ.\n\nМодель сохранится в папку «VoiceAssistant» на внутренней памяти. Её можно будет перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
+                .setMessage("Размер: 500 МБ. Распакуется до 1.8 ГБ.\n\nМодель сохранится в папку «VoiceAssistant» на внутренней памяти. Её можно перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
                 .setPositiveButton("Да, разрешить мобильный") { _, _ -> downloader?.startDownload(true) }
                 .setNeutralButton("Только Wi-Fi") { _, _ -> downloader?.startDownload(false) }
                 .setNegativeButton("Отмена", null)
