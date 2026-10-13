@@ -8,9 +8,6 @@ import android.util.Log
 import org.vosk.Model
 import org.vosk.Recognizer
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.IOException
 
 class VoiceRecorder(
     private val context: Context,
@@ -32,7 +29,6 @@ class VoiceRecorder(
             var model: Model? = null
 
             try {
-                // 1. Находим модель — она распакована в filesDir/model
                 val modelDir = File(context.filesDir, "model")
                 if (!modelDir.exists()) {
                     Log.e("MYVOSK", "Модель не найдена в ${modelDir.absolutePath}")
@@ -46,7 +42,6 @@ class VoiceRecorder(
                 model = Model(modelDir.absolutePath)
                 recognizer = Recognizer(model, 16000.0f)
 
-                // 2. Настраиваем AudioRecord
                 val sampleRate = 16000
                 val bufferSize = AudioRecord.getMinBufferSize(
                     sampleRate,
@@ -82,7 +77,6 @@ class VoiceRecorder(
                     }
                 }
 
-                // 3. Получаем результат
                 val resultJson = recognizer.finalResult
                 Log.e("MYVOSK", "Vosk finalResult: $resultJson")
 
@@ -118,7 +112,7 @@ class VoiceRecorder(
             val start = json.indexOf("\"text\"")
             if (start < 0) return ""
             val afterColon = json.indexOf(":", start) + 1
-            val firstQuote = json.indexOf("\"", afterQuote) + 1
+            val firstQuote = json.indexOf("\"", afterColon) + 1
             val secondQuote = json.indexOf("\"", firstQuote)
             if (firstQuote <= 0 || secondQuote <= 0) return ""
             json.substring(firstQuote, secondQuote).trim()
