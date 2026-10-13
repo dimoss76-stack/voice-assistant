@@ -171,7 +171,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="СКАЧАТЬ УЛУЧШЕННУЮ МОДЕЛЬ (500 МБ)"
+            android:text="СКАЧАТЬ УЛУЧШЕННУЮ МОДЕЛЬ (1.5 ГБ)"
             android:textSize="16sp" />
 
         <Button
