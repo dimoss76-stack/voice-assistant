@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ключевое слово для активации:"
+            android:textSize="16sp"
+            android:paddingTop="10dp" />
+
+        <EditText
+            android:id="@+id/editActivation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="слушай"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Подтверждение (после активации):"
+            android:textSize="16sp"
+            android:paddingTop="15dp" />
+
+        <EditText
+            android:id="@+id/editConfirm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="говорите"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Команда времени (без активации):"
+            android:textSize="16sp"
+            android:paddingTop="15dp" />
+
+        <EditText
+            android:id="@+id/editTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="часы"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Команда даты (без активации):"
+            android:textSize="16sp"
+            android:paddingTop="15dp" />
+
+        <EditText
+            android:id="@+id/editDate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="дата"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Команда выключения:"
+            android:textSize="16sp"
+            android:paddingTop="15dp" />
+
+        <EditText
+            android:id="@+id/editShutdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="выключись"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginTop="25dp"
+            android:text="СОХРАНИТЬ"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/btnBack"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginTop="10dp"
+            android:text="НАЗАД"
+            android:textSize="18sp" />
+
+    </LinearLayout>
+</ScrollView>
