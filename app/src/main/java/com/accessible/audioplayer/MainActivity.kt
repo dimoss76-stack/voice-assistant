@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -39,7 +40,6 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 60, 30, 60)
         }
         btnHelp.setOnClickListener {
-            Log.e("MYVOSK", "Нажата кнопка ПОМОЩЬ")
             startActivity(Intent(this@MainActivity, HelpActivity::class.java))
         }
         layout.addView(btnHelp)
@@ -50,10 +50,30 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 60, 30, 60)
         }
         btnSettings.setOnClickListener {
-            Log.e("MYVOSK", "Нажата кнопка НАСТРОЙКИ")
             startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
         }
         layout.addView(btnSettings)
+
+        // Пустое место для отступа
+        val spacer = TextView(this).apply {
+            text = ""
+            height = 100
+        }
+        layout.addView(spacer)
+
+        // Маленькая кнопка ВЫХОД — внизу, слева
+        val btnExit = Button(this).apply {
+            text = "ВЫХОД"
+            textSize = 14f
+            setPadding(20, 20, 20, 20)
+        }
+        btnExit.setOnClickListener {
+            Log.e("MYVOSK", "Нажата кнопка ВЫХОД")
+            stopService(Intent(this@MainActivity, VoiceService::class.java))
+            finishAffinity()
+            System.exit(0)
+        }
+        layout.addView(btnExit)
 
         setContentView(layout)
 
@@ -88,13 +108,13 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Запрашиваю разрешения..."
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
         } else {
-            statusText.text = "Помощник работает"
+            statusText.text = "Помощник работает\nВерсия 2026-10-13-v3"
             startVoiceService()
         }
     }
 
     private fun startVoiceService() {
-        statusText.text = "Помощник работает"
+        statusText.text = "Помощник работает\nВерсия 2026-10-13-v3"
         val intent = Intent(this, VoiceService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -111,7 +131,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (micGranted) {
-            statusText.text = "Помощник работает"
+            statusText.text = "Помощник работает\nВерсия 2026-10-13-v3"
             startVoiceService()
         } else {
             statusText.text = "Разрешение на микрофон НЕ выдано"
