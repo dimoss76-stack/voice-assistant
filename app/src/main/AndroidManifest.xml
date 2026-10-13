@@ -14,7 +14,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Для Android 10 и ниже — обычный доступ к памяти -->
+    <!-- Для Android 9 и ниже — прямой доступ к памяти -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
