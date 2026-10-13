@@ -231,19 +231,46 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun initVoskSpeechEngine() {
+    val useLarge = settings.useLargeModel
+    val largeDir = java.io.File(filesDir, "model-large")
+    val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
+
+    if (useLarge && largeReady) {
+        // Загружаем большую модель с диска
+        Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
         try {
-            StorageService.unpack(this, "model-ru", "model",
-                { m: Model ->
-                    this.model = m
-                    startListening()
-                    speakOut("Помощник готов")
-                },
-                { exception: IOException ->
-                    Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
-                }
-            )
-        } catch (e: Exception) { Log.e("MYVOSK", "Исключение: ${e.message}", e) }
+            val m = Model(largeDir.absolutePath)
+            this.model = m
+            startListening()
+            speakOut("Помощник готов. Использую улучшенную модель")
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
+            // Откатываемся на маленькую
+            loadSmallModel()
+        }
+    } else {
+        // Стандартная модель из assets
+        loadSmallModel()
     }
+}
+
+private fun loadSmallModel() {
+    Log.e("MYVOSK", "Загружаю стандартную модель")
+    try {
+        StorageService.unpack(this, "model-ru", "model",
+            { m: Model ->
+                this.model = m
+                startListening()
+                speakOut("Помощник готов")
+            },
+            { exception: IOException ->
+                Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
+            }
+        )
+    } catch (e: Exception) {
+        Log.e("MYVOSK", "Исключение: ${e.message}", e)
+    }
+}
 
     private fun startListening() {
         try {
