@@ -33,16 +33,16 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(statusText)
 
-        val btnStart = Button(this).apply {
-            text = "ЗАПУСТИТЬ ПОМОЩНИКА"
+        val btnHelp = Button(this).apply {
+            text = "ПОМОЩЬ"
             textSize = 22f
             setPadding(30, 60, 30, 60)
         }
-        btnStart.setOnClickListener {
-            Log.e("MYVOSK", "Нажата кнопка ЗАПУСТИТЬ")
-            startVoiceService()
+        btnHelp.setOnClickListener {
+            Log.e("MYVOSK", "Нажата кнопка ПОМОЩЬ")
+            startActivity(Intent(this@MainActivity, HelpActivity::class.java))
         }
-        layout.addView(btnStart)
+        layout.addView(btnHelp)
 
         val btnSettings = Button(this).apply {
             text = "НАСТРОЙКИ"
@@ -57,7 +57,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(layout)
 
-        // Проверяем разрешения и, если всё хорошо, стартуем сразу
         checkPermissionsAndStart()
     }
 
@@ -95,7 +94,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startVoiceService() {
-        Log.e("MYVOSK", "M3. startVoiceService() вызван")
         statusText.text = "Помощник работает"
         val intent = Intent(this, VoiceService::class.java)
         try {
@@ -104,9 +102,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-            Log.e("MYVOSK", "M4. Сервис запущен")
         } catch (e: Exception) {
-            Log.e("MYVOSK", "M5. Ошибка: ${e.message}", e)
             statusText.text = "Ошибка: ${e.message}"
         }
     }
