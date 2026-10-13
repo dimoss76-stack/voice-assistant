@@ -113,7 +113,7 @@ class SettingsActivity : AppCompatActivity() {
         btnDownloadLarge.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Скачать улучшенную модель?")
-                .setMessage("Размер: 500 МБ. Распакуется до 1.8 ГБ.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
+                .setMessage("Размер: 500 МБ. Распакуется до 1.8 ГБ.\n\nМодель сохранится в папку «VoiceAssistant» на внутренней памяти. Её можно будет перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
                 .setPositiveButton("Да, разрешить мобильный") { _, _ -> downloader?.startDownload(true) }
                 .setNeutralButton("Только Wi-Fi") { _, _ -> downloader?.startDownload(false) }
                 .setNegativeButton("Отмена", null)
@@ -127,7 +127,7 @@ class SettingsActivity : AppCompatActivity() {
         btnDeleteLarge.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Удалить улучшенную модель?")
-                .setMessage("Будет освобождено ~1.8 ГБ. Помощник вернётся к стандартной модели.")
+                .setMessage("Будет освобождено ~1.8 ГБ.")
                 .setPositiveButton("Удалить") { _, _ ->
                     settings.useLargeModel = false
                     downloader?.deleteLargeModel()
@@ -139,10 +139,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateModelUI() {
         val ready = downloader?.isLargeModelReady() == true
+        val path = downloader?.getModelPath() ?: ""
         if (ready) {
-            modelStatusText.text = if (settings.useLargeModel)
-                "Модель: улучшенная (используется)"
-            else "Модель: улучшенная (отключена)"
+            modelStatusText.text = (if (settings.useLargeModel) "Модель: улучшенная (используется)\n" else "Модель: улучшенная (отключена)\n") + "Папка: $path"
             btnDownloadLarge.visibility = android.view.View.GONE
             btnToggleLarge.visibility = android.view.View.VISIBLE
             btnDeleteLarge.visibility = android.view.View.VISIBLE
