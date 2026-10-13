@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
@@ -77,14 +79,12 @@ class SettingsActivity : AppCompatActivity() {
         currentTargetField = target
         Log.e("MYVOSK", "Старт Vosk-записи для поля")
 
-        // 1. Останавливаем VoiceService, чтобы освободить микрофон
         statusText.text = "Останавливаю помощника…"
         stopService(Intent(this, VoiceService::class.java))
 
-        // 2. Небольшая пауза, чтобы микрофон освободился
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        Handler(Looper.getMainLooper()).postDelayed({
             startVoskRecording()
-        }, 500)
+        }, 800)
     }
 
     private fun startVoskRecording() {
@@ -103,7 +103,6 @@ class SettingsActivity : AppCompatActivity() {
             },
             onFinished = {
                 runOnUiThread {
-                    // 3. Перезапускаем VoiceService
                     val intent = Intent(this, VoiceService::class.java)
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         startForegroundService(intent)
@@ -115,9 +114,5 @@ class SettingsActivity : AppCompatActivity() {
             }
         )
         recorder.startRecording(5000L)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
     }
 }
