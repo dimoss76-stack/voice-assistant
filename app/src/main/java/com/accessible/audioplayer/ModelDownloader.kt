@@ -1,14 +1,17 @@
 package com.accessible.audioplayer
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipInputStream
@@ -24,16 +27,22 @@ class ModelDownloader(
     companion object {
         private const val URL_COMPRESSED = "https://alphacephei.com/vosk/models/vosk-model-ru-0.42-compress.zip"
         private const val ARCHIVE_NAME = "vosk-large.zip"
-        private const val PUBLIC_FOLDER = "VoiceAssistant"
+        private const val ROOT_FOLDER = "VoiceAssistant"
         private const val MODEL_SUBFOLDER = "model-large"
     }
 
-    // Возвращает папку для модели во внешней памяти:
-    // /sdcard/VoiceAssistant/model-large/
+    /**
+     * Возвращает папку модели в публичном "Download":
+     *   /sdcard/Download/VoiceAssistant/model-large/
+     * Плюс: видно через USB-кабель и в любом файловом менеджере.
+     */
     private fun getModelDir(): File {
-        val public = File(Environment.getExternalStorageDirectory(), PUBLIC_FOLDER)
-        if (!public.exists()) public.mkdirs()
-        return File(public, MODEL_SUBFOLDER)
+        val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val root = File(public, ROOT_FOLDER)
+        if (!root.exists()) root.mkdirs()
+        val model = File(root, MODEL_SUBFOLDER)
+        if (!model.exists()) model.mkdirs()
+        return model
     }
 
     fun getModelPath(): String = getModelDir().absolutePath
@@ -46,6 +55,8 @@ class ModelDownloader(
     fun deleteLargeModel() {
         val dir = getModelDir()
         if (dir.exists()) dir.deleteRecursively()
+        // Удалим и родительскую папку VoiceAssistant, если пуста
+        dir.parentFile?.let { if (it.listFiles()?.isEmpty() == true) it.delete() }
         onDone(true)
     }
 
@@ -103,13 +114,13 @@ class ModelDownloader(
 
                 onProgress("Распаковываю (это займёт 5–10 минут)…")
                 val modelDir = getModelDir()
-                if (modelDir.exists()) modelDir.deleteRecursively()
-                modelDir.mkdirs()
+                // Очистим содержимое модели, если что-то есть
+                modelDir.listFiles()?.forEach { it.deleteRecursively() }
 
                 unzip(archive, modelDir)
                 archive.delete()
 
-                // Если внутри оказалась одна вложенная папка — поднимаем содержимое
+                // Если внутри одна вложенная папка — поднимаем содержимое
                 val children = modelDir.listFiles()
                 if (children != null && children.size == 1 && children[0].isDirectory) {
                     val nested = children[0]
@@ -120,7 +131,7 @@ class ModelDownloader(
                     nested.delete()
                 }
 
-                onProgress("Готово! Модель установлена в $modelDir")
+                onProgress("Готово! Модель: $modelDir")
                 onDone(true)
             } catch (e: Exception) {
                 Log.e("MYVOSK", "Ошибка скачивания: ${e.message}", e)
