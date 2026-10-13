@@ -6,6 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -37,6 +40,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var ttsSpeakingUntil = 0L
     private var lastActivationTime = 0L
 
+    // Режим записи слова
+    private var recordingMode = false
+    private var recordingFieldName: String = ""
+
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable {
         Log.e("MYVOSK", "Таймаут — сбрасываю активацию")
@@ -45,7 +52,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     override fun onCreate() {
         super.onCreate()
-        Log.e("MYVOSK", "0. onCreate сервиса начался")
+        Log.e("MYVOSK", "0. onCreate сервиса")
         settings = VoiceSettings(this)
 
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -63,16 +70,126 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val callerName = intent.getStringExtra("CALLER_NAME") ?: "Неизвестный номер"
                 handleIncomingCall(callerName)
             }
-            "CALL_ANSWERED" -> {
-                awaitingAnswer = false
-            }
-            "CALL_ENDED" -> {
-                awaitingAnswer = false
+            "CALL_ANSWERED" -> awaitingAnswer = false
+            "CALL_ENDED" -> awaitingAnswer = false
+            "RECORD_WORD" -> {
+                val fieldName = intent.getStringExtra("FIELD") ?: ""
+                Log.e("MYVOSK", "Получена команда записи для поля: $fieldName")
+                startWordRecording(fieldName)
             }
         }
         return START_STICKY
     }
 
+    // === Запись слова через уже загруженную модель ===
+    private fun startWordRecording(fieldName: String) {
+        recordingFieldName = fieldName
+        recordingMode = true
+        speakOut("Говорите")
+        Log.e("MYVOSK", "Начинаю запись слова для поля: $fieldName")
+
+        // Запускаем поток записи через 1.5 секунды (после того как TTS скажет "Говорите")
+        handler.postDelayed({
+            Thread {
+                recordWordThread()
+            }.start()
+        }, 1500L)
+    }
+
+    private fun recordWordThread() {
+        val currentModel = model
+        if (currentModel == null) {
+            Log.e("MYVOSK", "Модель не загружена, отмена")
+            sendWordResult("")
+            return
+        }
+
+        var audioRecord: AudioRecord? = null
+        var recognizer: Recognizer? = null
+
+        try {
+            val sampleRate = 16000
+            val bufferSize = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize * 4
+            )
+
+            if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e("MYVOSK", "AudioRecord не инициализирован")
+                sendWordResult("")
+                return
+            }
+
+            recognizer = Recognizer(currentModel, 16000.0f)
+            audioRecord.startRecording()
+            Log.e("MYVOSK", "Запись 5 секунд")
+
+            val buffer = ShortArray(bufferSize)
+            val startTime = System.currentTimeMillis()
+            val durationMs = 5000L
+
+            while (System.currentTimeMillis() - startTime < durationMs) {
+                val read = audioRecord.read(buffer, 0, buffer.size)
+                if (read > 0) {
+                    recognizer.acceptWaveForm(buffer, read)
+                }
+            }
+
+            val resultJson = recognizer.finalResult
+            Log.e("MYVOSK", "Vosk результат: $resultJson")
+
+            val text = extractText(resultJson)
+            if (text.isNotEmpty()) {
+                Log.e("MYVOSK", "Распознано слово: '$text'")
+                sendWordResult(text)
+            } else {
+                sendWordResult("")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка записи: ${e.message}", e)
+            sendWordResult("")
+        } finally {
+            try { audioRecord?.stop() } catch (_: Exception) {}
+            try { audioRecord?.release() } catch (_: Exception) {}
+            try { recognizer?.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun sendWordResult(text: String) {
+        handler.post {
+            val intent = Intent("VOICE_WORD_RECORDED")
+            intent.putExtra("FIELD", recordingFieldName)
+            intent.putExtra("WORD", text)
+            sendBroadcast(intent)
+            Log.e("MYVOSK", "Отправлен Broadcast: поле=$recordingFieldName, слово='$text'")
+            recordingMode = false
+            recordingFieldName = ""
+        }
+    }
+
+    private fun extractText(json: String): String {
+        return try {
+            val start = json.indexOf("\"text\"")
+            if (start < 0) return ""
+            val afterColon = json.indexOf(":", start) + 1
+            val firstQuote = json.indexOf("\"", afterColon) + 1
+            val secondQuote = json.indexOf("\"", firstQuote)
+            if (firstQuote <= 0 || secondQuote <= 0) return ""
+            json.substring(firstQuote, secondQuote).trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    // === Обработка входящего звонка ===
     private fun handleIncomingCall(callerName: String) {
         awaitingAnswer = true
         speakOut("Звонит $callerName. Ответить?")
@@ -136,8 +253,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun initVoskSpeechEngine() {
         try {
             StorageService.unpack(this, "model-ru", "model",
-                { model: Model ->
-                    this.model = model
+                { m: Model ->
+                    this.model = m
                     startListening()
                     speakOut("Помощник готов")
                 },
@@ -163,6 +280,12 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     override fun onResult(hypothesis: String?) {
+        // Игнорируем всё во время записи слова
+        if (recordingMode) {
+            Log.e("MYVOSK", "Игнорирую onResult (идёт запись слова)")
+            return
+        }
+
         if (hypothesis == null) return
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
         if (text.isEmpty()) return
@@ -177,7 +300,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val dateWord = settings.dateWord
         val shutdownWord = settings.shutdownWord
 
-        // === Голосовое выключение ===
         if (text.contains(shutdownWord)) {
             speakOut("Выключаюсь")
             handler.postDelayed({
@@ -187,7 +309,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // === Без активации: часы и дата ===
         if (!isActivated && !awaitingAnswer) {
             if (text.contains(timeWord)) {
                 val timeFormat = SimpleDateFormat("HH:mm", Locale("ru"))
@@ -201,7 +322,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             }
         }
 
-        // === Звонок — ожидание ответа ===
         if (awaitingAnswer) {
             val words = text.split(" ", ",", ".", "!", "?")
             if (words.contains("да") || words.contains("ответить") || words.contains("ответь")) {
@@ -219,7 +339,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // === Обычная активация ===
         if (!isActivated) {
             if (text.contains(activation)) {
                 if (System.currentTimeMillis() - lastActivationTime < 3000) return
@@ -244,11 +363,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun executeCommand(command: String) {
-        Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
-
         when {
-            command.contains("время") || command.contains("сколько времени") || command.contains("который час") -> {
+            command.contains("время") || command.contains("сколько времени") -> {
                 val timeFormat = SimpleDateFormat("HH:mm", Locale("ru"))
                 speakOut("Сейчас ${timeFormat.format(calendar.time)}")
             }
@@ -256,9 +373,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val dateFormat = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
                 speakOut("Сегодня ${dateFormat.format(calendar.time)}")
             }
-            else -> {
-                speakOut("Не понял")
-            }
+            else -> speakOut("Не понял")
         }
     }
 
