@@ -25,7 +25,8 @@ class ModelDownloader(
     private var cancelled = false
 
     companion object {
-        private const val URL_COMPRESSED = "https://alphacephei.com/vosk/models/vosk-model-ru-0.42-compress.zip"
+        
+        private const val URL_COMPRESSED = "https://alphacephei.com/vosk/models/vosk-model-ru-0.22.zip"
         private const val ARCHIVE_NAME = "vosk-large.zip"
         private const val ROOT_FOLDER = "VoiceAssistant"
         private const val MODEL_SUBFOLDER = "model-large"
@@ -78,13 +79,13 @@ class ModelDownloader(
                     return@Thread
                 }
 
-                onProgress("Скачиваю модель (500 МБ)…")
+                onProgress("Скачиваю модель (1.5 ГБ)…")
                 val archive = File(context.cacheDir, ARCHIVE_NAME)
                 val url = URL(URL_COMPRESSED)
                 val connection = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 30000
-                    readTimeout = 30000
-                }
+                    connectTimeout = 60000
+                    readTimeout = 180000
+                 }
                 connection.connect()
 
                 val totalSize = connection.contentLength.toLong()
