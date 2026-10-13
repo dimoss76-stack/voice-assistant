@@ -26,12 +26,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="com.accessible.audioplayer.SettingsActivity"
+            android:exported="false"
+            android:label="Настройки" />
+
         <service
             android:name="com.accessible.audioplayer.VoiceService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
 
-        <!-- НОВЫЙ: слушатель входящих звонков -->
         <receiver
             android:name="com.accessible.audioplayer.CallReceiver"
             android:exported="true">
