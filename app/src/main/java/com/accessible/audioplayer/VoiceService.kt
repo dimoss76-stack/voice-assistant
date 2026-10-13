@@ -235,26 +235,26 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun initVoskSpeechEngine() {
-        val useLarge = settings.useLargeModel
-        val largeDir = java.io.File(Environment.getExternalStorageDirectory(), "VoiceAssistant/model-large")
-        val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
+    val useLarge = settings.useLargeModel
+    val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    val largeDir = java.io.File(public, "VoiceAssistant/model-large")
+    val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
 
-        if (useLarge && largeReady) {
-            Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
-            try {
-                val m = Model(largeDir.absolutePath)
-                this.model = m
-                startListening()
-                speakOut("Помощник готов. Улучшенная модель")
-            } catch (e: Exception) {
-                Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
-                loadSmallModel()
-            }
-        } else {
+    if (useLarge && largeReady) {
+        Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
+        try {
+            val m = Model(largeDir.absolutePath)
+            this.model = m
+            startListening()
+            speakOut("Помощник готов. Улучшенная модель")
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
             loadSmallModel()
         }
+    } else {
+        loadSmallModel()
     }
-
+}
     private fun loadSmallModel() {
         Log.e("MYVOSK", "Загружаю стандартную модель")
         try {
