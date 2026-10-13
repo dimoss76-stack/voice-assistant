@@ -16,12 +16,25 @@
             android:textSize="16sp"
             android:paddingTop="10dp" />
 
-        <EditText
-            android:id="@+id/editActivation"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="слушай"
-            android:textSize="18sp" />
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editActivation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="слушай"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btnRecordActivation"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
@@ -30,12 +43,25 @@
             android:textSize="16sp"
             android:paddingTop="15dp" />
 
-        <EditText
-            android:id="@+id/editConfirm"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="говорите"
-            android:textSize="18sp" />
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editConfirm"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="говорите"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btnRecordConfirm"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
@@ -44,12 +70,25 @@
             android:textSize="16sp"
             android:paddingTop="15dp" />
 
-        <EditText
-            android:id="@+id/editTime"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="часы"
-            android:textSize="18sp" />
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editTime"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="часы"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btnRecordTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
@@ -58,12 +97,25 @@
             android:textSize="16sp"
             android:paddingTop="15dp" />
 
-        <EditText
-            android:id="@+id/editDate"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="дата"
-            android:textSize="18sp" />
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editDate"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="дата"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btnRecordDate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
@@ -72,12 +124,35 @@
             android:textSize="16sp"
             android:paddingTop="15dp" />
 
-        <EditText
-            android:id="@+id/editShutdown"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="выключись"
-            android:textSize="18sp" />
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editShutdown"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="выключись"
+                android:textSize="18sp" />
+
+            <Button
+                android:id="@+id/btnRecordShutdown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text=""
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#0066CC" />
 
         <Button
             android:id="@+id/btnSave"
