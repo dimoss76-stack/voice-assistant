@@ -130,7 +130,7 @@ class SettingsActivity : AppCompatActivity() {
         btnDownloadLarge.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Скачать улучшенную модель?")
-                .setMessage("Размер: 500 МБ. Распакуется до 1.8 ГБ.\n\nМодель сохранится в папку «VoiceAssistant» на внутренней памяти. Её можно перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
+                .setMessage("Размер: 1.5 ГБ. Это большая модель Vosk — распознаёт в разы точнее.\n\nМодель сохранится в папку «Download/VoiceAssistant» на внутренней памяти. Её можно перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
                 .setPositiveButton("Да, разрешить мобильный") { _, _ -> downloader?.startDownload(true) }
                 .setNeutralButton("Только Wi-Fi") { _, _ -> downloader?.startDownload(false) }
                 .setNegativeButton("Отмена", null)
