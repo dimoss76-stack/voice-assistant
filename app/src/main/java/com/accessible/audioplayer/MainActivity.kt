@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (micGranted) {
-            statusText.text = "Помощник работает\nВерсия 2026-10-13-v3"
+            statusText.text = "Помощник работает\nВерсия 2026-10-13-v4 (Vosk)"
             startVoiceService()
         } else {
             statusText.text = "Разрешение на микрофон НЕ выдано"
