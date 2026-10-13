@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -19,13 +21,47 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         Log.e("MYVOSK", "M0. MainActivity onCreate начался")
 
-        statusText = TextView(this).apply {
-            text = "Приложение запущено.\nПроверяю разрешения..."
-            textSize = 22f
-            setPadding(60, 300, 60, 60)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(60, 200, 60, 60)
         }
-        setContentView(statusText)
 
+        statusText = TextView(this).apply {
+            text = "Проверяю разрешения..."
+            textSize = 22f
+            setPadding(0, 0, 0, 60)
+        }
+        layout.addView(statusText)
+
+        val btnStart = Button(this).apply {
+            text = "ЗАПУСТИТЬ ПОМОЩНИКА"
+            textSize = 22f
+            setPadding(30, 60, 30, 60)
+        }
+        btnStart.setOnClickListener {
+            Log.e("MYVOSK", "Нажата кнопка ЗАПУСТИТЬ")
+            startVoiceService()
+        }
+        layout.addView(btnStart)
+
+        val btnSettings = Button(this).apply {
+            text = "НАСТРОЙКИ"
+            textSize = 22f
+            setPadding(30, 60, 30, 60)
+        }
+        btnSettings.setOnClickListener {
+            Log.e("MYVOSK", "Нажата кнопка НАСТРОЙКИ")
+            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+        }
+        layout.addView(btnSettings)
+
+        setContentView(layout)
+
+        // Проверяем разрешения и, если всё хорошо, стартуем сразу
+        checkPermissionsAndStart()
+    }
+
+    private fun checkPermissionsAndStart() {
         val permissions = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
@@ -36,7 +72,6 @@ class MainActivity : AppCompatActivity() {
             != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
         val extraPerms = listOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
@@ -51,18 +86,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (permissions.isNotEmpty()) {
-            Log.e("MYVOSK", "M1. Нет разрешений, запрашиваю: $permissions")
-            statusText.text = "Приложение запущено.\nЗапрашиваю разрешения..."
+            statusText.text = "Запрашиваю разрешения..."
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
         } else {
-            Log.e("MYVOSK", "M2. Все разрешения есть, запускаю сервис")
+            statusText.text = "Помощник работает"
             startVoiceService()
         }
     }
 
     private fun startVoiceService() {
         Log.e("MYVOSK", "M3. startVoiceService() вызван")
-        statusText.text = "Разрешения есть.\nЗапускаю сервис..."
+        statusText.text = "Помощник работает"
         val intent = Intent(this, VoiceService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -70,25 +104,21 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-            Log.e("MYVOSK", "M4. Сервис запущен командой")
+            Log.e("MYVOSK", "M4. Сервис запущен")
         } catch (e: Exception) {
-            Log.e("MYVOSK", "M5. Ошибка запуска сервиса: ${e.message}", e)
-            statusText.text = "Ошибка запуска сервиса:\n${e.message}"
+            Log.e("MYVOSK", "M5. Ошибка: ${e.message}", e)
+            statusText.text = "Ошибка: ${e.message}"
         }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        Log.e("MYVOSK", "M6. onRequestPermissionsResult, requestCode=$requestCode")
-
         val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
         if (micGranted) {
-            Log.e("MYVOSK", "M7. Разрешение на микрофон выдано")
+            statusText.text = "Помощник работает"
             startVoiceService()
         } else {
-            Log.e("MYVOSK", "M8. Разрешение на микрофон НЕ выдано")
-            statusText.text = "Разрешение на микрофон НЕ выдано.\nПриложение не сможет слушать команды."
+            statusText.text = "Разрешение на микрофон НЕ выдано"
         }
     }
 }
