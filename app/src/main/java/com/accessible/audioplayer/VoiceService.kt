@@ -235,43 +235,54 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun initVoskSpeechEngine() {
-    val useLarge = settings.useLargeModel
-    val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-    val largeDir = java.io.File(public, "VoiceAssistant/model-large")
-    val largeReady = largeDir.exists() && largeDir.listFiles()?.isNotEmpty() == true
+    val mode = settings.modelMode
 
-    if (useLarge && largeReady) {
-        Log.e("MYVOSK", "Загружаю БОЛЬШУЮ модель из ${largeDir.absolutePath}")
-        try {
-            val m = Model(largeDir.absolutePath)
-            this.model = m
-            startListening()
-            speakOut("Помощник готов. Улучшенная модель")
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка большой модели: ${e.message}", e)
-            loadSmallModel()
+    if (mode == 1) {
+        // Streaming модель на телефоне
+        val streamingDir = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+            "VoiceAssistant/vosk-model-small-streaming-ru"
+        )
+        val ready = streamingDir.exists() && streamingDir.listFiles()?.isNotEmpty() == true
+
+        if (ready) {
+            Log.e("MYVOSK", "Загружаю STREAMING модель из ${streamingDir.absolutePath}")
+            try {
+                val m = Model(streamingDir.absolutePath)
+                this.model = m
+                startListening()
+                speakOut("Помощник готов. Улучшенная модель")
+                return
+            } catch (e: Exception) {
+                Log.e("MYVOSK", "Ошибка streaming: ${e.message}", e)
+                // fallback
+            }
+        } else {
+            Log.e("MYVOSK", "Streaming модель не найдена: ${streamingDir.absolutePath}")
         }
-    } else {
-        loadSmallModel()
+    }
+
+    // Стандартная модель из assets
+    loadSmallModel()
+}
+
+private fun loadSmallModel() {
+    Log.e("MYVOSK", "Загружаю стандартную модель")
+    try {
+        StorageService.unpack(this, "model-ru", "model",
+            { m: Model ->
+                this.model = m
+                startListening()
+                speakOut("Помощник готов")
+            },
+            { exception: IOException ->
+                Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
+            }
+        )
+    } catch (e: Exception) {
+        Log.e("MYVOSK", "Исключение: ${e.message}", e)
     }
 }
-    private fun loadSmallModel() {
-        Log.e("MYVOSK", "Загружаю стандартную модель")
-        try {
-            StorageService.unpack(this, "model-ru", "model",
-                { m: Model ->
-                    this.model = m
-                    startListening()
-                    speakOut("Помощник готов")
-                },
-                { exception: IOException ->
-                    Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
-                }
-            )
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Исключение: ${e.message}", e)
-        }
-    }
 
     private fun startListening() {
         try {
