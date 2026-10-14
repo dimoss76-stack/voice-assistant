@@ -40,6 +40,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     private var awaitingAnswer = false
     private var ttsSpeakingUntil = 0L
+    private var ignoreUntil = 0L
     private var lastActivationTime = 0L
 
     private var recordingMode = false
@@ -125,7 +126,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 return
             }
 
-            // Запись слова — БЕЗ грамматики (свободный словарь)
             recognizer = Recognizer(currentModel, 16000.0f)
             audioRecord.startRecording()
             Log.e("MYVOSK", "Запись 5 секунд")
@@ -211,8 +211,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun speakOut(text: String) {
         Log.e("MYVOSK", "speakOut: $text")
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        val duration = (text.length * 70L + 1500L).coerceAtLeast(2500L)
+        val duration = (text.length * 100L + 3000L).coerceAtLeast(5000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
+        ignoreUntil = ttsSpeakingUntil + 2000L
     }
 
     private fun showNotification() {
@@ -235,7 +236,31 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun initVoskSpeechEngine() {
-        // Всегда используем стандартную модель (streaming не тянет телефон)
+        val mode = settings.modelMode
+
+        if (mode == 1) {
+            val streamingDir = java.io.File(
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                "VoiceAssistant/vosk-model-small-streaming-ru"
+            )
+            val ready = streamingDir.exists() && streamingDir.listFiles()?.isNotEmpty() == true
+
+            if (ready) {
+                Log.e("MYVOSK", "Загружаю STREAMING модель из ${streamingDir.absolutePath}")
+                try {
+                    val m = Model(streamingDir.absolutePath)
+                    this.model = m
+                    startListening()
+                    speakOut("Помощник готов. Улучшенная модель")
+                    return
+                } catch (e: Exception) {
+                    Log.e("MYVOSK", "Ошибка streaming: ${e.message}", e)
+                }
+            } else {
+                Log.e("MYVOSK", "Streaming модель не найдена: ${streamingDir.absolutePath}")
+            }
+        }
+
         loadSmallModel()
     }
 
@@ -264,14 +289,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val confirm = settings.confirmWord
                 val shutdownWord = settings.shutdownWord
 
-                // Грамматика — Vosk распознаёт ТОЛЬКО эти слова
                 val grammar = """[
                     "$activation",
                     "$confirm",
                     "$shutdownWord",
                     "время", "часы", "час", "сколько",
                     "дата", "день", "число",
-                    "да", "нет", "ответить", "ответь", "сбрось", "отклони",
+                    "да", "нет", "ответь", "сбрось", "отклони",
                     "[unk]"
                 ]"""
 
@@ -283,7 +307,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
-            // Fallback — без грамматики
             try {
                 model?.let {
                     val rec = Recognizer(it, 16000.0f)
@@ -302,7 +325,12 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         if (hypothesis == null) return
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
         if (text.isEmpty()) return
-        if (System.currentTimeMillis() < ttsSpeakingUntil) return
+
+        // Блокировка эха TTS
+        if (System.currentTimeMillis() < ignoreUntil) {
+            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
+            return
+        }
 
         Log.e("MYVOSK", "Распознано: '$text'")
 
@@ -320,12 +348,15 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         // Ответ на звонок
         if (awaitingAnswer) {
             val words = text.split(" ", ",", ".", "!", "?")
-            if (words.contains("да") || words.contains("ответить") || words.contains("ответь")) {
+            if (words.contains("да") || words.contains("ответь")) {
+                Log.e("MYVOSK", "Слышу ДА — принимаю звонок")
                 speakOut("Отвечаю"); acceptCall(); awaitingAnswer = false; return
             }
             if (words.contains("нет") || words.contains("сбрось") || words.contains("отклони")) {
+                Log.e("MYVOSK", "Слышу НЕТ — отклоняю")
                 speakOut("Отклоняю"); rejectCall(); awaitingAnswer = false; return
             }
+            Log.e("MYVOSK", "Не команда во время звонка: '$text'")
             return
         }
 
@@ -346,6 +377,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             }
         } else {
             if (text == activation) return
+            if (text.length < 3) {
+                Log.e("MYVOSK", "Слишком короткое, игнорирую: '$text'")
+                return
+            }
             executeCommand(text)
             handler.removeCallbacks(resetActivation)
             isActivated = false
