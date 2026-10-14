@@ -4,13 +4,10 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.Handler
 import android.os.ResultReceiver
-import android.provider.Settings
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
@@ -25,9 +22,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var settings: VoiceSettings
     private lateinit var statusText: TextView
     private lateinit var modelStatusText: TextView
-    private lateinit var btnDownloadLarge: Button
-    private lateinit var btnToggleLarge: Button
-    private lateinit var btnDeleteLarge: Button
+    private lateinit var btnToggleModel: Button
 
     private var editActivation: EditText? = null
     private var editConfirm: EditText? = null
@@ -36,14 +31,12 @@ class SettingsActivity : AppCompatActivity() {
     private var editShutdown: EditText? = null
 
     private var currentFieldName: String = ""
-    private var downloader: ModelDownloader? = null
 
     private val resultReceiver = object : ResultReceiver(Handler()) {
         override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
             val field = resultData?.getString("FIELD") ?: return
             val word = resultData.getString("WORD") ?: ""
             if (field != currentFieldName) return
-
             if (word.isNotEmpty()) {
                 val target = when (field) {
                     "activation" -> editActivation
@@ -54,7 +47,7 @@ class SettingsActivity : AppCompatActivity() {
                     else -> null
                 }
                 target?.setText(word)
-                statusText.text = "Распознано: $word (можно исправить вручную)"
+                statusText.text = "Распознано: $word"
             } else {
                 statusText.text = "Не расслышал, попробуйте ещё раз"
             }
@@ -75,9 +68,11 @@ class SettingsActivity : AppCompatActivity() {
         val btnBack = findViewById<Button>(R.id.btnBack)
         statusText = findViewById(R.id.statusText)
         modelStatusText = findViewById(R.id.modelStatusText)
-        btnDownloadLarge = findViewById(R.id.btnDownloadLarge)
-        btnToggleLarge = findViewById(R.id.btnToggleLarge)
-        btnDeleteLarge = findViewById(R.id.btnDeleteLarge)
+        btnToggleModel = findViewById(R.id.btnDownloadLarge) // переиспользуем ID
+
+        // Скрываем кнопки старой большой модели, если они есть
+        findViewById<Button?>(R.id.btnToggleLarge)?.visibility = android.view.View.GONE
+        findViewById<Button?>(R.id.btnDeleteLarge)?.visibility = android.view.View.GONE
 
         editActivation?.setText(settings.activationWord)
         editConfirm?.setText(settings.confirmWord)
@@ -103,72 +98,37 @@ class SettingsActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
-        downloader = ModelDownloader(this,
-            onProgress = { msg -> runOnUiThread { statusText.text = msg } },
-            onDone = { success -> runOnUiThread { updateModelUI(); if (success) statusText.text = "Готово!" } }
-        )
-
-        // Запрос разрешения на доступ ко всем файлам (Android 11+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:$packageName")
-                    startActivity(intent)
-                    statusText.text = "Разрешите доступ к файлам, чтобы скачать модель"
-                } catch (e: Exception) {
-                    Log.e("MYVOSK", "MANAGE_EXTERNAL_STORAGE: ${e.message}", e)
-                }
-            }
+        btnToggleModel.setOnClickListener {
+            settings.modelMode = if (settings.modelMode == 0) 1 else 0
+            updateModelUI()
+            Toast.makeText(this, if (settings.modelMode == 1) "Включена streaming-модель. Перезапустите помощника." else "Вернулись к стандартной. Перезапустите помощника.", Toast.LENGTH_LONG).show()
         }
 
-        setupModelButtons()
         updateModelUI()
     }
 
-    private fun setupModelButtons() {
-        btnDownloadLarge.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Скачать улучшенную модель?")
-                .setMessage("Размер: 1.5 ГБ. Это большая модель Vosk — распознаёт в разы точнее.\n\nМодель сохранится в папку «Download/VoiceAssistant» на внутренней памяти. Её можно перенести на другой телефон через флешку.\n\nРазрешить скачивание через мобильный интернет, если Wi-Fi недоступен?")
-                .setPositiveButton("Да, разрешить мобильный") { _, _ -> downloader?.startDownload(true) }
-                .setNeutralButton("Только Wi-Fi") { _, _ -> downloader?.startDownload(false) }
-                .setNegativeButton("Отмена", null)
-                .show()
-        }
-        btnToggleLarge.setOnClickListener {
-            settings.useLargeModel = !settings.useLargeModel
-            updateModelUI()
-            Toast.makeText(this, if (settings.useLargeModel) "Улучшенная модель включена. Перезапустите помощника." else "Вернулись к стандартной. Перезапустите помощника.", Toast.LENGTH_LONG).show()
-        }
-        btnDeleteLarge.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Удалить улучшенную модель?")
-                .setMessage("Будет освобождено ~1.8 ГБ.")
-                .setPositiveButton("Удалить") { _, _ ->
-                    settings.useLargeModel = false
-                    downloader?.deleteLargeModel()
-                }
-                .setNegativeButton("Отмена", null)
-                .show()
-        }
-    }
-
     private fun updateModelUI() {
-        val ready = downloader?.isLargeModelReady() == true
-        val path = downloader?.getModelPath() ?: ""
-        if (ready) {
-            modelStatusText.text = (if (settings.useLargeModel) "Модель: улучшенная (используется)\n" else "Модель: улучшенная (отключена)\n") + "Папка: $path"
-            btnDownloadLarge.visibility = android.view.View.GONE
-            btnToggleLarge.visibility = android.view.View.VISIBLE
-            btnDeleteLarge.visibility = android.view.View.VISIBLE
-            btnToggleLarge.text = if (settings.useLargeModel) "ОТКЛЮЧИТЬ (вернуться к стандартной)" else "ИСПОЛЬЗОВАТЬ УЛУЧШЕННУЮ"
-        } else {
-            modelStatusText.text = "Модель: стандартная (45 МБ)"
-            btnDownloadLarge.visibility = android.view.View.VISIBLE
-            btnToggleLarge.visibility = android.view.View.GONE
-            btnDeleteLarge.visibility = android.view.View.GONE
+        val streamingDir = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+            "VoiceAssistant/vosk-model-small-streaming-ru"
+        )
+        val streamingReady = streamingDir.exists() && streamingDir.listFiles()?.isNotEmpty() == true
+
+        if (!streamingReady) {
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nStreaming-модель не найдена.\nСкопируйте папку vosk-model-small-streaming-ru в Download/VoiceAssistant/"
+            btnToggleModel.text = "STREAMING-МОДЕЛЬ НЕ НАЙДЕНА"
+            btnToggleModel.isEnabled = false
+            return
         }
+
+        if (settings.modelMode == 1) {
+            modelStatusText.text = "Модель: streaming (120 МБ, используется)"
+            btnToggleModel.text = "ВЕРНУТЬСЯ К СТАНДАРТНОЙ"
+        } else {
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (120 МБ)"
+            btnToggleModel.text = "ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
+        }
+        btnToggleModel.isEnabled = true
     }
 
     private fun startRecordingFor(fieldName: String) {
