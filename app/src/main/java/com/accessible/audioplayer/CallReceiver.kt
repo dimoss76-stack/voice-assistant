@@ -7,7 +7,6 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.telephony.TelephonyManager
 import android.util.Log
-import androidx.core.content.ContextCompat
 
 class CallReceiver : BroadcastReceiver() {
 
@@ -28,11 +27,16 @@ class CallReceiver : BroadcastReceiver() {
                 }
                 Log.e("MYVOSK", "Определено имя: $callerName")
 
+                // ВАЖНО: обычный startService, НЕ startForegroundService
                 val serviceIntent = Intent(context, VoiceService::class.java).apply {
                     action = "INCOMING_CALL"
                     putExtra("CALLER_NAME", callerName)
                 }
-                ContextCompat.startForegroundService(context, serviceIntent)
+                try {
+                    context.startService(serviceIntent)
+                } catch (e: Exception) {
+                    Log.e("MYVOSK", "Ошибка startService: ${e.message}", e)
+                }
             }
 
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
@@ -40,7 +44,7 @@ class CallReceiver : BroadcastReceiver() {
                 val serviceIntent = Intent(context, VoiceService::class.java).apply {
                     action = "CALL_ANSWERED"
                 }
-                ContextCompat.startForegroundService(context, serviceIntent)
+                try { context.startService(serviceIntent) } catch (_: Exception) {}
             }
 
             TelephonyManager.EXTRA_STATE_IDLE -> {
@@ -48,7 +52,7 @@ class CallReceiver : BroadcastReceiver() {
                 val serviceIntent = Intent(context, VoiceService::class.java).apply {
                     action = "CALL_ENDED"
                 }
-                ContextCompat.startForegroundService(context, serviceIntent)
+                try { context.startService(serviceIntent) } catch (_: Exception) {}
             }
         }
     }
