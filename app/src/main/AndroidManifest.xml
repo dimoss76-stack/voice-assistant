@@ -47,7 +47,12 @@
 
         <service
             android:name="com.accessible.audioplayer.VoiceService"
-            android:exported="false" />
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+          <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="voice_assistant_for_blind_users" />
+         </service>
 
         <receiver
             android:name="com.accessible.audioplayer.CallReceiver"
