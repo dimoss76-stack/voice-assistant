@@ -278,12 +278,19 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun startListening() {
-        try {
-            model?.let {
+    try {
+        model?.let {
+            // ГРАММАТИКА НЕ РАБОТАЕТ ДЛЯ STREAMING-МОДЕЛИ — Vosk падает в Model::Ref()
+            // Поэтому для streaming используем распознаватель БЕЗ грамматики
+            val isStreaming = settings.modelMode == 1
+
+            val recognizer = if (isStreaming) {
+                Log.e("MYVOSK", "Streaming-модель: распознаватель БЕЗ грамматики")
+                Recognizer(it, 16000.0f)
+            } else {
                 val activation = settings.activationWord
                 val confirm = settings.confirmWord
                 val shutdownWord = settings.shutdownWord
-
                 val grammar = """[
                     "$activation",
                     "$confirm",
@@ -293,27 +300,29 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     "да", "нет", "ответь", "сбрось", "отклони",
                     "[unk]"
                 ]"""
+                Log.e("MYVOSK", "Стандартная модель: грамматика $grammar")
+                Recognizer(it, 16000.0f, grammar)
+            }
 
-                Log.e("MYVOSK", "Грамматика: $grammar")
-
-                val rec = Recognizer(it, 16000.0f, grammar)
+            speechService = SpeechService(recognizer, 16000.0f)
+            speechService?.startListening(this)
+            Log.e("MYVOSK", "Слушание запущено")
+        }
+    } catch (e: Exception) {
+        Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
+        // Fallback — без грамматики
+        try {
+            model?.let {
+                val rec = Recognizer(it, 16000.0f)
                 speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
+                Log.e("MYVOSK", "Fallback: без грамматики")
             }
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
-            try {
-                model?.let {
-                    val rec = Recognizer(it, 16000.0f)
-                    speechService = SpeechService(rec, 16000.0f)
-                    speechService?.startListening(this)
-                    Log.e("MYVOSK", "Fallback: без грамматики")
-                }
-            } catch (e2: Exception) {
-                Log.e("MYVOSK", "Fallback тоже не сработал: ${e2.message}", e2)
-            }
+        } catch (e2: Exception) {
+            Log.e("MYVOSK", "Fallback тоже не сработал: ${e2.message}", e2)
         }
     }
+}
 
     override fun onResult(hypothesis: String?) {
         if (recordingMode) return
