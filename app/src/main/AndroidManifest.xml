@@ -14,7 +14,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Для Android 9 и ниже — прямой доступ к памяти -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -25,6 +24,7 @@
     <application
         android:allowBackup="true"
         android:label="Голосовой Помощник"
+        android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
