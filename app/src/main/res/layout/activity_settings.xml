@@ -144,7 +144,7 @@
                 android:text="🎤" />
         </LinearLayout>
 
-        <View
+                <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="25dp"
@@ -171,26 +171,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="СКАЧАТЬ УЛУЧШЕННУЮ МОДЕЛЬ (1.5 ГБ)"
+            android:text="ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
             android:textSize="16sp" />
-
-        <Button
-            android:id="@+id/btnToggleLarge"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:text="Использовать улучшенную модель"
-            android:textSize="16sp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/btnDeleteLarge"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:text="УДАЛИТЬ УЛУЧШЕННУЮ МОДЕЛЬ"
-            android:textSize="16sp"
-            android:visibility="gone" />
 
         <TextView
             android:id="@+id/statusText"
@@ -220,3 +202,4 @@
 
     </LinearLayout>
 </ScrollView>
+
