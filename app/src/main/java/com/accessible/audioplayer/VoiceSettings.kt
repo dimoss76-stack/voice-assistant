@@ -26,8 +26,8 @@ class VoiceSettings(context: Context) {
         get() = prefs.getString("shutdown_word", "выключись") ?: "выключись"
         set(value) = prefs.edit().putString("shutdown_word", value.lowercase().trim()).apply()
 
-    // Флаг использования большой модели
-    var useLargeModel: Boolean
-        get() = prefs.getBoolean("use_large_model", false)
-        set(value) = prefs.edit().putBoolean("use_large_model", value).apply()
+    // Режим модели: 0 = стандартная (встроенная), 1 = streaming (на телефоне)
+    var modelMode: Int
+        get() = prefs.getInt("model_mode", 0)
+        set(value) = prefs.edit().putInt("model_mode", value).apply()
 }
