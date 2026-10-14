@@ -44,9 +44,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var resultReceiver: ResultReceiver? = null
 
     private val handler = Handler(Looper.getMainLooper())
-    private val resetActivation = Runnable {
-        isActivated = false
-    }
+    private val resetActivation = Runnable { isActivated = false }
 
     override fun onCreate() {
         super.onCreate()
@@ -63,6 +61,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.e("MYVOSK", "onStartCommand action=${intent?.action}")
         when (intent?.action) {
             "INCOMING_CALL" -> {
                 val callerName = intent.getStringExtra("CALLER_NAME") ?: "Неизвестный номер"
@@ -178,8 +177,19 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun handleIncomingCall(callerName: String) {
+        Log.e("MYVOSK", "handleIncomingCall: $callerName")
         awaitingAnswer = true
-        speakOut("Звонит $callerName. Ответить?")
+        // Короткая пауза только на "Звонит..." — потом сразу слушаем
+        speakOutShort("Звонит $callerName. Ответить?")
+    }
+
+    // Короткая пауза — для звонка, чтобы успеть услышать "да"/"нет"
+    private fun speakOutShort(text: String) {
+        Log.e("MYVOSK", "speakOutShort: $text")
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        val duration = (text.length * 70L + 1000L).coerceAtLeast(2000L)
+        ttsSpeakingUntil = System.currentTimeMillis() + duration
+        ignoreUntil = ttsSpeakingUntil + 500L  // только 0.5 сек после TTS
     }
 
     private fun acceptCall() {
@@ -187,6 +197,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                 tm.acceptRingingCall()
+                Log.e("MYVOSK", "acceptRingingCall вызван")
             }
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
     }
@@ -196,6 +207,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                 tm.endCall()
+                Log.e("MYVOSK", "endCall вызван")
             }
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
     }
@@ -224,15 +236,16 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-           startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-         } else {
-          startForeground(1, notification)
-}
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     private fun initVoskSpeechEngine() {
-        // Всегда стандартная модель (streaming не тянет телефон)
         loadSmallModel()
     }
 
@@ -267,7 +280,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     "$shutdownWord",
                     "время", "часы", "час", "сколько",
                     "дата", "день", "число",
-                    "да", "нет", "ответь", "ответить", "возьми", "сбрось", "отклони",
+                    "да", "нет", "не", "ответь", "ответить", "возьми",
+                    "сбрось", "отклони", "отменить", "отмена",
                     "[unk]"
                 ]"""
 
@@ -276,6 +290,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val rec = Recognizer(it, 16000.0f, grammar)
                 speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
+                Log.e("MYVOSK", "Слушание запущено (с грамматикой)")
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
@@ -298,9 +313,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
         if (text.isEmpty()) return
 
-        Log.e("MYVOSK", "Распознано: '$text'")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, ignoreUntil=${ignoreUntil - System.currentTimeMillis()})")
 
-        // Блокировка эха TTS
+        // Блокировка эха TTS — но для звонка она короткая
         if (System.currentTimeMillis() < ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
             return
@@ -309,7 +324,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val activation = settings.activationWord
         val shutdownWord = settings.shutdownWord
 
-        // Голосовое выключение — без активации
+        // Голосовое выключение
         if (text.contains(shutdownWord)) {
             speakOut("Выключаюсь")
             handler.postDelayed({ stopSelf(); System.exit(0) }, 1500)
@@ -318,32 +333,26 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         // === ОБРАБОТКА ЗВОНКА ===
         if (awaitingAnswer) {
-            // Убираем блокировку — слушаем сразу
-            ttsSpeakingUntil = 0L
-            ignoreUntil = 0L
+            Log.e("MYVOSK", "ЗВОНОК: услышано '$text'")
 
-            Log.e("MYVOSK", "Во время звонка услышано: '$text'")
-
-            val lower = text.lowercase()
-            val hasNet = lower.contains("нет") || lower.contains("не ") || lower.startsWith("не")
-            val hasDa = lower.contains("да") || lower.contains("ответ") || lower.contains("возьми")
+            val hasNet = text.contains("нет") || text == "не" || text.startsWith("не")
+            val hasDa = text.contains("да") || text.contains("ответ") || text.contains("возьми")
 
             if (hasNet && !hasDa) {
-                Log.e("MYVOSK", "Слышу НЕТ — отклоняю")
-                speakOut("Отклоняю")
+                Log.e("MYVOSK", "ЗВОНОК: НЕТ — отклоняю")
+                speakOutShort("Отклоняю")
                 rejectCall()
                 awaitingAnswer = false
                 return
             }
             if (hasDa) {
-                Log.e("MYVOSK", "Слышу ДА — принимаю звонок")
-                speakOut("Отвечаю")
+                Log.e("MYVOSK", "ЗВОНОК: ДА — принимаю")
+                speakOutShort("Отвечаю")
                 acceptCall()
                 awaitingAnswer = false
                 return
             }
-
-            Log.e("MYVOSK", "Не команда во время звонка: '$text'")
+            Log.e("MYVOSK", "ЗВОНОК: не команда '$text'")
             return
         }
 
