@@ -68,11 +68,7 @@ class SettingsActivity : AppCompatActivity() {
         val btnBack = findViewById<Button>(R.id.btnBack)
         statusText = findViewById(R.id.statusText)
         modelStatusText = findViewById(R.id.modelStatusText)
-        btnToggleModel = findViewById(R.id.btnDownloadLarge) // переиспользуем ID
-
-        // Скрываем кнопки старой большой модели, если они есть
-        findViewById<Button?>(R.id.btnToggleLarge)?.visibility = android.view.View.GONE
-        findViewById<Button?>(R.id.btnDeleteLarge)?.visibility = android.view.View.GONE
+        btnToggleModel = findViewById(R.id.btnDownloadLarge)
 
         editActivation?.setText(settings.activationWord)
         editConfirm?.setText(settings.confirmWord)
@@ -122,10 +118,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         if (settings.modelMode == 1) {
-            modelStatusText.text = "Модель: streaming (120 МБ, используется)"
+            modelStatusText.text = "Модель: streaming (569 МБ, используется)"
             btnToggleModel.text = "ВЕРНУТЬСЯ К СТАНДАРТНОЙ"
         } else {
-            modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (120 МБ)"
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (569 МБ)"
             btnToggleModel.text = "ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
         }
         btnToggleModel.isEnabled = true
