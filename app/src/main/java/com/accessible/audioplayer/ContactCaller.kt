@@ -5,7 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.ContactsContract
+import android.telecom.TelecomManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 
@@ -17,7 +20,6 @@ class ContactCaller(private val context: Context) {
     fun findContacts(query: String): List<Contact> {
         Log.e("MYVOSK", "Поиск контактов: '$query'")
 
-        // Проверка разрешения
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
             != PackageManager.PERMISSION_GRANTED) {
             Log.e("MYVOSK", "Нет разрешения READ_CONTACTS")
@@ -26,12 +28,10 @@ class ContactCaller(private val context: Context) {
 
         val result = mutableListOf<Contact>()
 
-        // Разбиваем фразу на слова — каждое слово должно найтись в имени
         val words = query.lowercase().split(" ")
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
-        // Игнорируем слова на латинице
         val cyrillicWords = words.filter { word ->
             word.any { ch -> ch in 'а'..'я' || ch == 'ё' }
         }
@@ -62,7 +62,6 @@ class ContactCaller(private val context: Context) {
                     val number = c.getString(numIdx) ?: continue
                     val lowerName = name.lowercase()
 
-                    // Проверяем, что ВСЕ кириллические слова из запроса есть в имени
                     val matches = cyrillicWords.all { lowerName.contains(it) }
                     if (matches) {
                         if (seen.add(name + number)) {
@@ -98,10 +97,8 @@ class ContactCaller(private val context: Context) {
                 val nameIdx = c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
                 while (c.moveToNext()) {
                     val fullName = c.getString(nameIdx) ?: continue
-                    // Берём первое слово имени (например, "Дима" из "Дима Блохов")
                     val firstWord = fullName.split(" ")
                         .firstOrNull()?.trim()?.lowercase() ?: continue
-                    // Фильтр: только кириллица, длина >= 2
                     if (firstWord.length >= 2 &&
                         firstWord.any { it in 'а'..'я' || it == 'ё' }) {
                         names.add(firstWord)
@@ -117,19 +114,55 @@ class ContactCaller(private val context: Context) {
         return unique
     }
 
-    // Позвонить по номеру
+    // Позвонить по номеру — через TelecomManager (обход BAL на Android 14+)
     fun callNumber(number: String): Boolean {
+        // Очищаем номер от всего, кроме цифр и +
+        val cleanNumber = number.replace(Regex("[^0-9+]"), "")
+        Log.e("MYVOSK", "callNumber: очищенный номер = $cleanNumber")
+
+        // Проверка разрешения CALL_PHONE
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e("MYVOSK", "Нет разрешения CALL_PHONE!")
+            return false
+        }
+
         return try {
-            val intent = Intent(Intent.ACTION_CALL).apply {
-                data = Uri.parse("tel:${number.replace(" ", "").replace("-", "")}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Современный способ — обходит Background Activity Launch restriction
+                val tm = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+                val uri = Uri.fromParts("tel", cleanNumber, null)
+                val extras = Bundle().apply {
+                    putBoolean(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true)
+                }
+                tm.placeCall(uri, extras)
+                Log.e("MYVOSK", "Звоню через TelecomManager: $cleanNumber (громкая связь)")
+            } else {
+                // Fallback для старых Android
+                val intent = Intent(Intent.ACTION_CALL).apply {
+                    data = Uri.parse("tel:$cleanNumber")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(android.telecom.TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, true)
+                }
+                context.startActivity(intent)
+                Log.e("MYVOSK", "Звоню через ACTION_CALL: $cleanNumber")
             }
-            context.startActivity(intent)
-            Log.e("MYVOSK", "Звоню по номеру $number")
             true
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка звонка: ${e.message}", e)
-            false
+            // Запасной вариант — ACTION_DIAL (открывает звонилку)
+            try {
+                val fallback = Intent(Intent.ACTION_DIAL).apply {
+                    data = Uri.parse("tel:$cleanNumber")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(fallback)
+                Log.e("MYVOSK", "Fallback: открываю звонилку (ACTION_DIAL)")
+                true
+            } catch (e2: Exception) {
+                Log.e("MYVOSK", "Ошибка fallback: ${e2.message}", e2)
+                false
+            }
         }
     }
 }
