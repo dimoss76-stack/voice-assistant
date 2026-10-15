@@ -62,10 +62,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var cachedNames: List<String> = emptyList()
     private var cacheTime = 0L
 
+    // Таймауты
     private var silenceTimeout: Runnable? = null
-
-    // Для бипа после "Звонить?" — чтобы понять, когда говорить "да"/"нет"
-    private var pendingConfirmBeep: Runnable? = null
+    private var choosingTimeout: Runnable? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
@@ -110,7 +109,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
     }
 
-    // Бип "можно говорить да или нет" — тройной короткий
     private fun beepConfirm() {
         try {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
@@ -143,7 +141,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         awaitingAnswer = true
         speakOutShort("Звонит $callerName. Ответить?")
-        // Бип после вопроса
         handler.postDelayed({ beepConfirm() }, 2500L)
     }
 
@@ -151,6 +148,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        cancelChoosingTimeout()
         ignoreUntil = System.currentTimeMillis() + 30000L
     }
 
@@ -158,6 +156,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        cancelChoosingTimeout()
         ignoreUntil = System.currentTimeMillis() + 2000L
     }
 
@@ -420,7 +419,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun startSilenceTimeout() {
         cancelSilenceTimeout()
         silenceTimeout = Runnable {
-            Log.e("MYVOSK", "Таймаут молчания")
+            Log.e("MYVOSK", "Таймаут молчания (ожидание имени)")
             if (awaitingName) {
                 speakOutShort("Не слышу. Назовите имя")
                 handler.postDelayed({ startListeningForName() }, 3000L)
@@ -432,6 +431,27 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun cancelSilenceTimeout() {
         silenceTimeout?.let { handler.removeCallbacks(it) }
         silenceTimeout = null
+    }
+
+    // === ТАЙМАУТ ВЫБОРА КОНТАКТА ===
+    private fun startChoosingTimeout() {
+        cancelChoosingTimeout()
+        choosingTimeout = Runnable {
+            Log.e("MYVOSK", "Таймаут выбора контакта — сброс")
+            choosingContact = false
+            contactList = emptyList()
+            contactIndex = 0
+            beepError()
+            speakOutShort("Отменено")
+            // Возвращаемся в основную грамматику
+            startListening()
+        }
+        handler.postDelayed(choosingTimeout!!, 15000L)
+    }
+
+    private fun cancelChoosingTimeout() {
+        choosingTimeout?.let { handler.removeCallbacks(it) }
+        choosingTimeout = null
     }
 
     override fun onResult(hypothesis: String?) {
@@ -458,6 +478,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             contactList = emptyList()
             contactIndex = 0
             cancelSilenceTimeout()
+            cancelChoosingTimeout()
             beepOk()
             speakOutShort("Отменено")
             return
@@ -487,6 +508,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         // ========== ВЫБОР КОНТАКТА ==========
         if (choosingContact) {
+            // Сбрасываем таймаут — пользователь ответил
+            cancelChoosingTimeout()
+
             val hasDa = text.contains("да") || text.contains("возьми") ||
                         text.contains("взять") || text.contains("поднять") || text == "д"
             val hasNet = text.contains("нет") || text.startsWith("не") ||
@@ -497,8 +521,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 if (contactIndex < contactList.size) {
                     val c = contactList[contactIndex]
                     speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
-                    // Бип "можно говорить да или нет" после вопроса
                     handler.postDelayed({ beepConfirm() }, 3000L)
+                    startChoosingTimeout()
                 } else {
                     choosingContact = false
                     contactList = emptyList()
@@ -529,6 +553,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 }
                 return
             }
+            // Ответ не распознан — перезапускаем таймаут
+            startChoosingTimeout()
             return
         }
 
@@ -645,8 +671,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             contactList = contacts
             contactIndex = 0
             speakOutShort("${c.name}. Звонить?")
-            // Бип "можно говорить да или нет" после вопроса
             handler.postDelayed({ beepConfirm() }, 3000L)
+            startChoosingTimeout()
             return
         }
         contactList = contacts
@@ -655,8 +681,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val first = contacts[0]
         val ordinal = ordinalWord(1)
         speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
-        // Бип "можно говорить да или нет" после вопроса
         handler.postDelayed({ beepConfirm() }, 3500L)
+        startChoosingTimeout()
     }
 
     private fun ordinalWord(n: Int): String {
@@ -678,7 +704,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         instance = null
         handler.removeCallbacks(resetActivation)
         cancelSilenceTimeout()
-        pendingConfirmBeep?.let { handler.removeCallbacks(it) }
+        cancelChoosingTimeout()
         wakeLock?.let { if (it.isHeld) it.release() }
         speechService?.stop(); speechService?.shutdown()
         tts?.stop(); tts?.shutdown()
