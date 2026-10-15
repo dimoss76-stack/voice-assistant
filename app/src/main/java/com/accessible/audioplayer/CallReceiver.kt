@@ -14,6 +14,9 @@ class CallReceiver : BroadcastReceiver() {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
 
+        val service = VoiceService.instance
+        Log.e("MYVOSK", "CallReceiver state=$state, service=${service != null}")
+
         when (state) {
             TelephonyManager.EXTRA_STATE_RINGING -> {
                 val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
@@ -23,20 +26,15 @@ class CallReceiver : BroadcastReceiver() {
                     getContactName(context, number) ?: "Неизвестный номер"
                 }
                 Log.e("MYVOSK", "CallReceiver RINGING: $name")
-
-                val broadcast = Intent("INCOMING_CALL_ACTION").apply {
-                    putExtra("CALLER_NAME", name)
-                    setPackage(context.packageName)
-                }
-                context.sendBroadcast(broadcast)
+                service?.onIncomingCall(name)
             }
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 Log.e("MYVOSK", "CallReceiver OFFHOOK")
-                context.sendBroadcast(Intent("CALL_ANSWERED_ACTION").setPackage(context.packageName))
+                service?.onCallAnswered()
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
                 Log.e("MYVOSK", "CallReceiver IDLE")
-                context.sendBroadcast(Intent("CALL_ENDED_ACTION").setPackage(context.packageName))
+                service?.onCallEnded()
             }
         }
     }
