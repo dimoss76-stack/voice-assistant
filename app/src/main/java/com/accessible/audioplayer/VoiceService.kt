@@ -58,11 +58,14 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     private var awaitingName = false
 
-    // Кэш имён контактов для словаря (обновляется раз в 60 сек)
+    // Кэш имён контактов для словаря
     private var cachedNames: List<String> = emptyList()
     private var cacheTime = 0L
 
     private var silenceTimeout: Runnable? = null
+
+    // Для бипа после "Звонить?" — чтобы понять, когда говорить "да"/"нет"
+    private var pendingConfirmBeep: Runnable? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
@@ -107,6 +110,20 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
     }
 
+    // Бип "можно говорить да или нет" — тройной короткий
+    private fun beepConfirm() {
+        try {
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            handler.postDelayed({
+                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            }, 150)
+            handler.postDelayed({
+                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            }, 300)
+            Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
+    }
+
     private fun beepError() {
         try {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_NACK, 250)
@@ -126,6 +143,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         awaitingAnswer = true
         speakOutShort("Звонит $callerName. Ответить?")
+        // Бип после вопроса
+        handler.postDelayed({ beepConfirm() }, 2500L)
     }
 
     fun onCallAnswered() {
@@ -153,9 +172,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } else {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         }
-        val duration = (text.length * 120L + 1500L).coerceAtLeast(2500L)
+        val duration = (text.length * 150L + 2000L).coerceAtLeast(3000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 800L
+        ignoreUntil = ttsSpeakingUntil + 1200L
     }
 
     private fun speakOut(text: String) {
@@ -354,7 +373,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             Log.e("MYVOSK", "Грамматика остановлена, старт распознавания имён")
 
             model?.let { m ->
-                // Кэш имён — обновляем раз в 60 секунд
                 val now = System.currentTimeMillis()
                 if (now - cacheTime > 60000L || cachedNames.isEmpty()) {
                     cachedNames = contactCaller.getAllContactNames()
@@ -363,15 +381,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val allNames = cachedNames
                 Log.e("MYVOSK", "Контактов в словаре: ${allNames.size}")
 
-                // Строим грамматику: имена + служебные слова
                 val namesJson = if (allNames.isEmpty()) {
-                    ""  // нет контактов — пустая грамматика (будет свободный режим)
+                    ""
                 } else {
                     allNames.joinToString(",") { "\"$it\"" }
                 }
 
                 val grammar = if (namesJson.isEmpty()) {
-                    // Если контактов нет — используем свободный режим
                     null
                 } else {
                     """[
@@ -452,7 +468,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             cancelSilenceTimeout()
             Log.e("MYVOSK", "Распознавание имени: '$text'")
 
-            // Если услышали несколько слов — берём первое
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
 
             if (nameOnly.length < 2) {
@@ -482,6 +497,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 if (contactIndex < contactList.size) {
                     val c = contactList[contactIndex]
                     speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
+                    // Бип "можно говорить да или нет" после вопроса
+                    handler.postDelayed({ beepConfirm() }, 3000L)
                 } else {
                     choosingContact = false
                     contactList = emptyList()
@@ -628,6 +645,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             contactList = contacts
             contactIndex = 0
             speakOutShort("${c.name}. Звонить?")
+            // Бип "можно говорить да или нет" после вопроса
+            handler.postDelayed({ beepConfirm() }, 3000L)
             return
         }
         contactList = contacts
@@ -636,6 +655,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val first = contacts[0]
         val ordinal = ordinalWord(1)
         speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
+        // Бип "можно говорить да или нет" после вопроса
+        handler.postDelayed({ beepConfirm() }, 3500L)
     }
 
     private fun ordinalWord(n: Int): String {
@@ -657,6 +678,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         instance = null
         handler.removeCallbacks(resetActivation)
         cancelSilenceTimeout()
+        pendingConfirmBeep?.let { handler.removeCallbacks(it) }
         wakeLock?.let { if (it.isHeld) it.release() }
         speechService?.stop(); speechService?.shutdown()
         tts?.stop(); tts?.shutdown()
