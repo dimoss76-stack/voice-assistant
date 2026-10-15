@@ -49,7 +49,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
 
-    // Приёмник звонков внутри сервиса
     private val callReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -79,7 +78,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceAssistant::WakeLock")
         wakeLock?.acquire()
 
-        // Регистрируем приёмник звонков
         val filter = IntentFilter().apply {
             addAction("INCOMING_CALL_ACTION")
             addAction("CALL_ANSWERED_ACTION")
@@ -100,7 +98,18 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun handleIncomingCall(callerName: String) {
         Log.e("MYVOSK", "handleIncomingCall: $callerName")
         awaitingAnswer = true
-        speakOut("Звонит $callerName. Ответить?")
+        speakOutShort("Звонит $callerName. Ответить?")
+    }
+
+    // Короткая пауза — только чтобы не поймать эхо вопроса
+    private fun speakOutShort(text: String) {
+        Log.e("MYVOSK", "speakOutShort: $text")
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        val duration = (text.length * 70L + 800L).coerceAtLeast(1500L)
+        ttsSpeakingUntil = System.currentTimeMillis() + duration
+        // Всего 500 мс после TTS — эхо вопроса не поймается
+        ignoreUntil = ttsSpeakingUntil + 500L
+        Log.e("MYVOSK", "Пауза TTS: ${duration + 500} мс")
     }
 
     private fun acceptCall() {
@@ -293,7 +302,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     "$shutdownWord",
                     "время", "часы", "час", "сколько",
                     "дата", "день", "число",
-                    "да", "нет", "ответь", "возьми", "сбрось", "отклони",
+                    "да", "нет", "возьми", "сбрось", "отклони",
                     "[unk]"
                 ]"""
 
@@ -313,8 +322,37 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
         if (text.isEmpty()) return
 
-        Log.e("MYVOSK", "Распознано: '$text'")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer)")
 
+        // === ЗВОНОК ===
+        if (awaitingAnswer) {
+            // Для звонка игнорируем блокировку TTS — важно услышать «да»/«нет»
+            Log.e("MYVOSK", "Звонок: проверяю '$text'")
+
+            // Убираем «ответ» из триггеров — только «да», «возьми»
+            val hasDa = text.contains("да") || text.contains("возьми")
+            val hasNet = text.contains("нет") || text.startsWith("не") ||
+                         text.contains("сброс") || text.contains("отклон")
+
+            if (hasNet && !hasDa) {
+                Log.e("MYVOSK", "Звонок: НЕТ — отклоняю")
+                speakOutShort("Отклоняю")
+                rejectCall()
+                awaitingAnswer = false
+                return
+            }
+            if (hasDa) {
+                Log.e("MYVOSK", "Звонок: ДА — принимаю")
+                speakOutShort("Отвечаю")
+                acceptCall()
+                awaitingAnswer = false
+                return
+            }
+            Log.e("MYVOSK", "Звонок: не команда — '$text'")
+            return
+        }
+
+        // Блокировка эха TTS (только для обычного режима)
         if (System.currentTimeMillis() < ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо): '$text'")
             return
@@ -326,28 +364,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         if (text.contains(shutdownWord)) {
             speakOut("Выключаюсь")
             handler.postDelayed({ stopSelf(); System.exit(0) }, 1500)
-            return
-        }
-
-        // Звонок
-        if (awaitingAnswer) {
-            val hasDa = text.contains("да") || text.contains("ответ") || text.contains("возьми")
-            val hasNet = text.contains("нет") || text.startsWith("не") || text.contains("сброс") || text.contains("отклон")
-
-            if (hasNet && !hasDa) {
-                Log.e("MYVOSK", "Слышу НЕТ")
-                speakOut("Отклоняю")
-                rejectCall()
-                awaitingAnswer = false
-                return
-            }
-            if (hasDa) {
-                Log.e("MYVOSK", "Слышу ДА")
-                speakOut("Отвечаю")
-                acceptCall()
-                awaitingAnswer = false
-                return
-            }
             return
         }
 
