@@ -113,7 +113,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
     }
 
-    private fun beepConfirm() {
+    // Бип подтверждения — ПОСЛЕ ignoreUntil TTS + пауза после бипа
+    private fun scheduleConfirmBeep() {
         confirmBeepRunnable?.let { handler.removeCallbacks(it) }
         confirmBeepRunnable = Runnable {
             try {
@@ -125,9 +126,14 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
                 }, 300)
                 Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
+                // Пауза после бипа — подавление эха бипа
+                ignoreUntil = System.currentTimeMillis() + 300L
             } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
         }
-        handler.postDelayed(confirmBeepRunnable!!, 3000L)
+        // Бип через ignoreUntil + 200 мс
+        val delayMs = (ignoreUntil - System.currentTimeMillis()) + 200L
+        val safeDelay = delayMs.coerceAtLeast(0L)
+        handler.postDelayed(confirmBeepRunnable!!, safeDelay)
     }
 
     private fun beepError() {
@@ -156,20 +162,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         awaitingAnswer = true
         speakOutShort("Звонит $callerName. Ответить?")
-        confirmBeepRunnable?.let { handler.removeCallbacks(it) }
-        confirmBeepRunnable = Runnable {
-            try {
-                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                handler.postDelayed({
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                }, 150)
-                handler.postDelayed({
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                }, 300)
-                Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
-            } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
-        }
-        handler.postDelayed(confirmBeepRunnable!!, 2500L)
+        scheduleConfirmBeep()
     }
 
     // Звонок активен (OFFHOOK) — включаем РЕЖИМ МОНИТОРИНГА
@@ -185,6 +178,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         awaitingName = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
+        confirmBeepRunnable?.let { handler.removeCallbacks(it) }
         inCallMonitoring = true
         ignoreUntil = System.currentTimeMillis() + 1500L
         startListeningForHangup()
@@ -219,9 +213,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } else {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         }
-        val duration = (text.length * 150L + 2000L).coerceAtLeast(3000L)
+        val duration = (text.length * 100L + 1000L).coerceAtLeast(2000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 1500L
+        ignoreUntil = ttsSpeakingUntil + 800L
     }
 
     private fun speakOut(text: String) {
@@ -476,6 +470,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
                 speechService = SpeechService(rec, 16000.0f)
                 beepName()
+                // Пауза после бипа имени — подавление эха
+                ignoreUntil = System.currentTimeMillis() + 500L
                 handler.postDelayed({
                     speechService?.startListening(this)
                     Log.e("MYVOSK", "Распознавание имён запущено (${allNames.size} имён)")
@@ -589,7 +585,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
 
-            // Фильтр команд — не принимать за имя
             val commandWords = listOf(
                 "нет", "да", "отмена", "отменить", "позвони", "позвонить",
                 "звонок", "трубку", "дата", "время", "день", "число",
@@ -632,20 +627,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     val c = contactList[contactIndex]
                     speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
                     handler.postDelayed({ startListening() }, 100L)
-                    confirmBeepRunnable?.let { handler.removeCallbacks(it) }
-                    confirmBeepRunnable = Runnable {
-                        try {
-                            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                            handler.postDelayed({
-                                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                            }, 150)
-                            handler.postDelayed({
-                                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                            }, 300)
-                            Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
-                        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
-                    }
-                    handler.postDelayed(confirmBeepRunnable!!, 3000L)
+                    scheduleConfirmBeep()
                     startChoosingTimeout()
                 } else {
                     choosingContact = false
@@ -795,20 +777,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             contactIndex = 0
             speakOutShort("${c.name}. Звонить?")
             handler.postDelayed({ startListening() }, 100L)
-            confirmBeepRunnable?.let { handler.removeCallbacks(it) }
-            confirmBeepRunnable = Runnable {
-                try {
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                    handler.postDelayed({
-                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                    }, 150)
-                    handler.postDelayed({
-                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                    }, 300)
-                    Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
-                } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
-            }
-            handler.postDelayed(confirmBeepRunnable!!, 3000L)
+            scheduleConfirmBeep()
             startChoosingTimeout()
             return
         }
@@ -819,20 +788,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val ordinal = ordinalWord(1)
         speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
         handler.postDelayed({ startListening() }, 100L)
-        confirmBeepRunnable?.let { handler.removeCallbacks(it) }
-        confirmBeepRunnable = Runnable {
-            try {
-                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                handler.postDelayed({
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                }, 150)
-                handler.postDelayed({
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                }, 300)
-                Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
-            } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
-        }
-        handler.postDelayed(confirmBeepRunnable!!, 3500L)
+        scheduleConfirmBeep()
         startChoosingTimeout()
     }
 
