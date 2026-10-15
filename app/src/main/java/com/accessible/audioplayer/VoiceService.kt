@@ -58,8 +58,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     private var awaitingName = false
 
-    // Режим "в звонке" — слушаем только "завершить этот звонок"
-    private var inCall = false
+    // РЕЖИМ МОНИТОРИНГА — слушаем только "завершить этот звонок"
+    private var inCallMonitoring = false
 
     // Кэш имён контактов для словаря
     private var cachedNames: List<String> = emptyList()
@@ -114,7 +114,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun beepConfirm() {
-        // Отменяем предыдущий запланированный бип, чтобы не было дублей
         confirmBeepRunnable?.let { handler.removeCallbacks(it) }
         confirmBeepRunnable = Runnable {
             try {
@@ -148,7 +147,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     // ========== ВХОДЯЩИЙ ЗВОНОК ==========
     fun onIncomingCall(callerName: String) {
         Log.e("MYVOSK", "onIncomingCall: $callerName")
-        // Сбрасываем все предыдущие режимы
         choosingContact = false
         awaitingName = false
         contactList = emptyList()
@@ -174,29 +172,40 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         handler.postDelayed(confirmBeepRunnable!!, 2500L)
     }
 
-    // Звонок активен (OFFHOOK) — переключаемся на грамматику "завершить этот звонок"
+    // Звонок активен (OFFHOOK) — включаем РЕЖИМ МОНИТОРИНГА
     fun onCallAnswered() {
-        Log.e("MYVOSK", "Звонок активен — слушаю только 'завершить этот звонок'")
+        if (inCallMonitoring) {
+            Log.e("MYVOSK", "Уже в мониторинге — игнорирую повтор OFFHOOK")
+            return
+        }
+        Log.e("MYVOSK", "=== РЕЖИМ МОНИТОРИНГА ВКЛЮЧЁН ===")
+        Log.e("MYVOSK", "Слушаю только 'завершить этот звонок'")
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
-        inCall = true
+        inCallMonitoring = true
+        ignoreUntil = System.currentTimeMillis() + 1500L
         startListeningForHangup()
     }
 
-    // Звонок завершён (IDLE) — возвращаем обычную грамматику
+    // Звонок завершён (IDLE) — выключаем РЕЖИМ МОНИТОРИНГА
     fun onCallEnded() {
-        Log.e("MYVOSK", "Звонок завершён — возвращаю обычную грамматику")
+        if (!inCallMonitoring) {
+            Log.e("MYVOSK", "Не в мониторинге — игнорирую повтор IDLE")
+            return
+        }
+        Log.e("MYVOSK", "=== РЕЖИМ МОНИТОРИНГА ВЫКЛЮЧЕН ===")
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
-        inCall = false
+        inCallMonitoring = false
         ignoreUntil = System.currentTimeMillis() + 2000L
         startListening()
+        Log.e("MYVOSK", "Возврат в обычный режим ожидания")
     }
 
     // ========== TTS ==========
@@ -212,7 +221,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
         val duration = (text.length * 150L + 2000L).coerceAtLeast(3000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 1200L
+        ignoreUntil = ttsSpeakingUntil + 1500L
     }
 
     private fun speakOut(text: String) {
@@ -220,7 +229,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         val duration = (text.length * 80L + 800L).coerceAtLeast(2000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 400L
+        ignoreUntil = ttsSpeakingUntil + 2000L
     }
 
     private fun acceptCall() {
@@ -401,13 +410,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
     }
 
-    // === ГРАММАТИКА ВО ВРЕМЯ ЗВОНКА — только "завершить этот звонок" ===
+    // === РЕЖИМ МОНИТОРИНГА: только "завершить этот звонок" ===
     private fun startListeningForHangup() {
         try {
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
-            Log.e("MYVOSK", "Переключаюсь на грамматику 'завершить этот звонок'")
+            Log.e("MYVOSK", "Грамматика мониторинга: 'завершить этот звонок'")
 
             model?.let { m ->
                 val grammar = """[
@@ -418,7 +427,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val rec = Recognizer(m, 16000.0f, grammar)
                 speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
-                Log.e("MYVOSK", "Слушаю только 'завершить этот звонок'")
+                Log.e("MYVOSK", "✅ Режим мониторинга активен")
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListeningForHangup: ${e.message}", e)
@@ -522,7 +531,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
         if (text.isEmpty()) return
 
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCall, ignore=${System.currentTimeMillis() < ignoreUntil})")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, ignore=${System.currentTimeMillis() < ignoreUntil})")
 
         // ========== ОБЩАЯ БЛОКИРОВКА ЭХА TTS ==========
         if (System.currentTimeMillis() < ignoreUntil) {
@@ -530,8 +539,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // ========== РЕЖИМ "В ЗВОНКЕ" — только "завершить этот звонок" ==========
-        if (inCall) {
+        // ========== РЕЖИМ МОНИТОРИНГА — только "завершить этот звонок" ==========
+        if (inCallMonitoring) {
             val words = text.split(" ").toSet()
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
                                  (words.contains("положить") && words.contains("трубку"))
@@ -580,10 +589,24 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
 
+            // Фильтр команд — не принимать за имя
+            val commandWords = listOf(
+                "нет", "да", "отмена", "отменить", "позвони", "позвонить",
+                "звонок", "трубку", "дата", "время", "день", "число",
+                "завершить", "положить", "набери", "набрать"
+            )
+            if (nameOnly in commandWords) {
+                Log.e("MYVOSK", "Это команда, а не имя: '$nameOnly' — переспрашиваю")
+                beepError()
+                speakOutShort("Назовите имя")
+                handler.postDelayed({ startListeningForName() }, 3500L)
+                return
+            }
+
             if (nameOnly.length < 2) {
                 beepError()
                 speakOutShort("Не расслышал. Повторите")
-                handler.postDelayed({ startListeningForName() }, 3000L)
+                handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
 
@@ -608,6 +631,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 if (contactIndex < contactList.size) {
                     val c = contactList[contactIndex]
                     speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
+                    handler.postDelayed({ startListening() }, 100L)
                     confirmBeepRunnable?.let { handler.removeCallbacks(it) }
                     confirmBeepRunnable = Runnable {
                         try {
@@ -630,7 +654,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     awaitingName = true
                     beepError()
                     speakOutShort("Больше нет. Назовите другое имя")
-                    handler.postDelayed({ startListeningForName() }, 4000L)
+                    handler.postDelayed({ startListeningForName() }, 6000L)
                 }
                 return
             }
@@ -728,7 +752,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 name == "часы" || name == "час") {
                 awaitingName = true
                 speakOut("Кому позвонить?")
-                handler.postDelayed({ startListeningForName() }, 2500L)
+                handler.postDelayed({ startListeningForName() }, 3000L)
                 return
             }
             startContactCall(name)
@@ -761,7 +785,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             beepError()
             speakOut("Контакт не найден. Назовите другое имя")
             awaitingName = true
-            handler.postDelayed({ startListeningForName() }, 4000L)
+            handler.postDelayed({ startListeningForName() }, 6000L)
             return
         }
         if (contacts.size == 1) {
@@ -824,20 +848,4 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     override fun onPartialResult(hypothesis: String?) {}
     override fun onFinalResult(hypothesis: String?) {}
     override fun onError(exception: Exception?) { Log.e("MYVOSK", "onError: ${exception?.message}", exception) }
-    override fun onTimeout() {}
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onDestroy() {
-        instance = null
-        handler.removeCallbacks(resetActivation)
-        cancelSilenceTimeout()
-        cancelChoosingTimeout()
-        confirmBeepRunnable?.let { handler.removeCallbacks(it) }
-        wakeLock?.let { if (it.isHeld) it.release() }
-        speechService?.stop(); speechService?.shutdown()
-        tts?.stop(); tts?.shutdown()
-        try { toneGenerator?.release() } catch (_: Exception) {}
-        toneGenerator = null
-        super.onDestroy()
-    }
-}
+    override fun on
