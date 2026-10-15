@@ -58,7 +58,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     private var awaitingName = false
 
-    // Таймаут молчания
+    // Кэш имён контактов для словаря (обновляется раз в 60 сек)
+    private var cachedNames: List<String> = emptyList()
+    private var cacheTime = 0L
+
     private var silenceTimeout: Runnable? = null
 
     private val handler = Handler(Looper.getMainLooper())
@@ -310,7 +313,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
     }
 
-    // === ГРАММАТИКА ===
+    // === ГРАММАТИКА ОСНОВНАЯ ===
     private fun startListening() {
         try {
             cancelSilenceTimeout()
@@ -341,22 +344,54 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
     }
 
-    // === СВОБОДНЫЙ РЕЖИМ ДЛЯ ИМЕНИ ===
+    // === ГРАММАТИКА С ИМЕНАМИ КОНТАКТОВ ===
     private fun startListeningForName() {
         try {
             cancelSilenceTimeout()
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
-            Log.e("MYVOSK", "Грамматика остановлена, старт свободного распознавания")
+            Log.e("MYVOSK", "Грамматика остановлена, старт распознавания имён")
 
-            model?.let {
-                val rec = Recognizer(it, 16000.0f)
+            model?.let { m ->
+                // Кэш имён — обновляем раз в 60 секунд
+                val now = System.currentTimeMillis()
+                if (now - cacheTime > 60000L || cachedNames.isEmpty()) {
+                    cachedNames = contactCaller.getAllContactNames()
+                    cacheTime = now
+                }
+                val allNames = cachedNames
+                Log.e("MYVOSK", "Контактов в словаре: ${allNames.size}")
+
+                // Строим грамматику: имена + служебные слова
+                val namesJson = if (allNames.isEmpty()) {
+                    ""  // нет контактов — пустая грамматика (будет свободный режим)
+                } else {
+                    allNames.joinToString(",") { "\"$it\"" }
+                }
+
+                val grammar = if (namesJson.isEmpty()) {
+                    // Если контактов нет — используем свободный режим
+                    null
+                } else {
+                    """[
+                        $namesJson,
+                        "отмена", "отменить", "стоп", "хватит",
+                        "назад"
+                    ]"""
+                }
+
+                val rec = if (grammar != null) {
+                    Recognizer(m, 16000.0f, grammar)
+                } else {
+                    Recognizer(m, 16000.0f)
+                }
+
                 speechService = SpeechService(rec, 16000.0f)
                 beepName()
                 handler.postDelayed({
                     speechService?.startListening(this)
-                    Log.e("MYVOSK", "Свободный распознаватель запущен на имя")
+                    Log.e("MYVOSK", "Распознавание имён запущено (${allNames.size} имён)")
                     startSilenceTimeout()
                 }, 300L)
             }
@@ -397,7 +432,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // ========== ЭКСТРЕННАЯ ОТМЕНА (в любом режиме) ==========
+        // ========== ЭКСТРЕННАЯ ОТМЕНА ==========
         if (text.contains("отмена") || text.contains("отменить") ||
             text.contains("стоп") || text.contains("хватит")) {
             Log.e("MYVOSK", "Экстренная отмена")
@@ -415,22 +450,12 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         // ========== ОЖИДАНИЕ ИМЕНИ ==========
         if (awaitingName) {
             cancelSilenceTimeout()
-            Log.e("MYVOSK", "Свободный режим: услышано '$text'")
+            Log.e("MYVOSK", "Распознавание имени: '$text'")
 
-            val isCommandWord = text.contains("позвони") || text.contains("позвонить") ||
-                    text.contains("набери") || text.contains("набрать") ||
-                    text.contains("слушай") || text.contains("выключись") ||
-                    text.contains("кому")
+            // Если услышали несколько слов — берём первое
+            val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
 
-            if (isCommandWord) {
-                Log.e("MYVOSK", "Это команда, а не имя — переспрашиваю")
-                beepError()
-                speakOutShort("Назовите имя")
-                handler.postDelayed({ startListeningForName() }, 3000L)
-                return
-            }
-
-            if (text.length < 2) {
+            if (nameOnly.length < 2) {
                 beepError()
                 speakOutShort("Не расслышал. Повторите")
                 handler.postDelayed({ startListeningForName() }, 3000L)
@@ -441,7 +466,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             beepOk()
             ignoreUntil = System.currentTimeMillis() + 500L
             handler.postDelayed({ startListening() }, 500)
-            handler.postDelayed({ startContactCall(text) }, 400)
+            handler.postDelayed({ startContactCall(nameOnly) }, 400)
             return
         }
 
@@ -464,7 +489,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     awaitingName = true
                     beepError()
                     speakOutShort("Больше нет. Назовите другое имя")
-                    handler.postDelayed({ startListeningForName() }, 3500L)
+                    handler.postDelayed({ startListeningForName() }, 4000L)
                 }
                 return
             }
@@ -594,7 +619,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             beepError()
             speakOut("Контакт не найден. Назовите другое имя")
             awaitingName = true
-            handler.postDelayed({ startListeningForName() }, 3000L)
+            handler.postDelayed({ startListeningForName() }, 4000L)
             return
         }
         if (contacts.size == 1) {
