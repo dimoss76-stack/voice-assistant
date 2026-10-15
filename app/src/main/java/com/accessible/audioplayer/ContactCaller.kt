@@ -79,6 +79,44 @@ class ContactCaller(private val context: Context) {
         return result
     }
 
+    // Все имена контактов (для словаря Vosk)
+    fun getAllContactNames(): List<String> {
+        val names = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e("MYVOSK", "Нет разрешения READ_CONTACTS для getAllContactNames")
+            return emptyList()
+        }
+
+        try {
+            val projection = arrayOf(ContactsContract.Contacts.DISPLAY_NAME)
+            context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                projection, null, null, null
+            )?.use { c ->
+                val nameIdx = c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                while (c.moveToNext()) {
+                    val fullName = c.getString(nameIdx) ?: continue
+                    // Берём первое слово имени (например, "Дима" из "Дима Блохов")
+                    val firstWord = fullName.split(" ")
+                        .firstOrNull()?.trim()?.lowercase() ?: continue
+                    // Фильтр: только кириллица, длина >= 2
+                    if (firstWord.length >= 2 &&
+                        firstWord.any { it in 'а'..'я' || it == 'ё' }) {
+                        names.add(firstWord)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка чтения имён: ${e.message}", e)
+        }
+
+        val unique = names.distinct()
+        Log.e("MYVOSK", "Всего уникальных имён: ${unique.size}")
+        return unique
+    }
+
     // Позвонить по номеру
     fun callNumber(number: String): Boolean {
         return try {
