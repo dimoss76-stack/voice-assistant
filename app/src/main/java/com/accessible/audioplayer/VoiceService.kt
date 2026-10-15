@@ -848,4 +848,20 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     override fun onPartialResult(hypothesis: String?) {}
     override fun onFinalResult(hypothesis: String?) {}
     override fun onError(exception: Exception?) { Log.e("MYVOSK", "onError: ${exception?.message}", exception) }
-    override fun on
+    override fun onTimeout() {}
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        instance = null
+        handler.removeCallbacks(resetActivation)
+        cancelSilenceTimeout()
+        cancelChoosingTimeout()
+        confirmBeepRunnable?.let { handler.removeCallbacks(it) }
+        wakeLock?.let { if (it.isHeld) it.release() }
+        speechService?.stop(); speechService?.shutdown()
+        tts?.stop(); tts?.shutdown()
+        try { toneGenerator?.release() } catch (_: Exception) {}
+        toneGenerator = null
+        super.onDestroy()
+    }
+}
