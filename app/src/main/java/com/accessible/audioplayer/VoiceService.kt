@@ -129,7 +129,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
-        // После ответа на звонок не слушаем разговор
         ignoreUntil = System.currentTimeMillis() + 30000L
     }
 
@@ -159,9 +158,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private fun speakOut(text: String) {
         Log.e("MYVOSK", "speakOut: $text")
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        val duration = (text.length * 120L + 2000L).coerceAtLeast(4000L)
+        val duration = (text.length * 80L + 800L).coerceAtLeast(2000L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 1200L
+        ignoreUntil = ttsSpeakingUntil + 400L
     }
 
     private fun acceptCall() {
@@ -440,6 +439,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
             awaitingName = false
             beepOk()
+            ignoreUntil = System.currentTimeMillis() + 500L
             handler.postDelayed({ startListening() }, 500)
             handler.postDelayed({ startContactCall(text) }, 400)
             return
@@ -476,7 +476,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     choosingContact = false
                     contactList = emptyList()
                     contactIndex = 0
-                    // Долгий игнор, чтобы микрофон не слышал звонок
                     ignoreUntil = System.currentTimeMillis() + 10000L
                     handler.postDelayed({
                         contactCaller.callNumber(c.number)
@@ -562,7 +561,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 name == "часы" || name == "час") {
                 awaitingName = true
                 speakOut("Кому позвонить?")
-                handler.postDelayed({ startListeningForName() }, 3500L)
+                handler.postDelayed({ startListeningForName() }, 2500L)
                 return
             }
             startContactCall(name)
@@ -593,7 +592,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         if (contacts.isEmpty()) {
             beepError()
-            speakOut("Контакт не найден")
+            speakOut("Контакт не найден. Назовите другое имя")
+            awaitingName = true
+            handler.postDelayed({ startListeningForName() }, 3000L)
             return
         }
         if (contacts.size == 1) {
