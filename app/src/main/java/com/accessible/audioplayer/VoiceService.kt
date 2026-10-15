@@ -69,7 +69,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     fun onIncomingCall(callerName: String) {
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         awaitingAnswer = true
-        speakOutShort("Звонит $callerName. Ответить?")
+        // Новая фраза — без слова "ответить" в конце
+        speakOutShort("Звонит $callerName. Ответить на вызов?")
     }
 
     fun onCallAnswered() {
@@ -285,7 +286,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val confirm = settings.confirmWord
                 val shutdownWord = settings.shutdownWord
 
-                // БЕЗ [unk] — Vosk обязан выбрать из наших слов
+                // БЕЗ [unk] — Vosk обязан выбрать из наших слов.
+                // Убрали "ответить"/"ответь" из грамматики.
                 val grammar = """[
                     "$activation",
                     "$confirm",
@@ -293,7 +295,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     "время", "часы", "час", "сколько",
                     "дата", "день", "число",
                     "да", "нет", "возьми", "сбрось", "отклони",
-                    "ответить", "ответь", "взять", "поднять"
+                    "взять", "поднять"
                 ]"""
 
                 val rec = Recognizer(it, 16000.0f, grammar)
@@ -314,14 +316,13 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer)")
 
-        // === ЗВОНОК — приоритетнее блокировки ===
+        // === ЗВОНОК ===
         if (awaitingAnswer) {
             Log.e("MYVOSK", "Звонок: проверяю '$text'")
 
-            // Расширенные триггеры для "да" и "нет"
+            // УБРАЛИ "ответ" из триггеров — только "да" и его вариации.
             val hasDa = text.contains("да") ||
                         text.contains("возьми") ||
-                        text.contains("ответ") ||
                         text.contains("взять") ||
                         text.contains("поднять") ||
                         text == "д"
@@ -349,7 +350,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // Блокировка эха TTS (обычный режим)
+        // Блокировка эха
         if (System.currentTimeMillis() < ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо): '$text'")
             return
