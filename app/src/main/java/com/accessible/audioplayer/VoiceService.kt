@@ -58,9 +58,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
     private var awaitingName = false
 
-    // Отложенный звонок (для подтверждения "да")
-    private var pendingContact: ContactCaller.Contact? = null
-
     // Таймаут молчания
     private var silenceTimeout: Runnable? = null
 
@@ -132,12 +129,15 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        // После ответа на звонок не слушаем разговор
+        ignoreUntil = System.currentTimeMillis() + 30000L
     }
 
     fun onCallEnded() {
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        ignoreUntil = System.currentTimeMillis() + 2000L
     }
 
     // ========== TTS ==========
@@ -151,7 +151,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } else {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         }
-        // Увеличено время игнорирования, чтобы TTS не попал в микрофон
         val duration = (text.length * 120L + 1500L).coerceAtLeast(2500L)
         ttsSpeakingUntil = System.currentTimeMillis() + duration
         ignoreUntil = ttsSpeakingUntil + 800L
@@ -394,7 +393,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, ignore=${System.currentTimeMillis() < ignoreUntil})")
 
         // ========== ОБЩАЯ БЛОКИРОВКА ЭХА TTS ==========
-        // Если TTS ещё говорит или только что договорил — игнорируем всё
         if (System.currentTimeMillis() < ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
             return
@@ -409,7 +407,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             awaitingAnswer = false
             contactList = emptyList()
             contactIndex = 0
-            pendingContact = null
             cancelSilenceTimeout()
             beepOk()
             speakOutShort("Отменено")
@@ -461,7 +458,6 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     val c = contactList[contactIndex]
                     speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
                 } else {
-                    // Больше нет — возвращаемся в режим ожидания имени
                     choosingContact = false
                     contactList = emptyList()
                     contactIndex = 0
@@ -476,12 +472,20 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 val c = contactList.getOrNull(contactIndex)
                 if (c != null) {
                     beepOk()
-                    speakOutShort("Звоню ${c.name}")
-                    contactCaller.callNumber(c.number)
+                    speakOutShort("Звоню")
+                    choosingContact = false
+                    contactList = emptyList()
+                    contactIndex = 0
+                    // Долгий игнор, чтобы микрофон не слышал звонок
+                    ignoreUntil = System.currentTimeMillis() + 10000L
+                    handler.postDelayed({
+                        contactCaller.callNumber(c.number)
+                    }, 1500L)
+                } else {
+                    choosingContact = false
+                    contactList = emptyList()
+                    contactIndex = 0
                 }
-                choosingContact = false
-                contactList = emptyList()
-                contactIndex = 0
                 return
             }
             return
@@ -594,12 +598,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
         if (contacts.size == 1) {
             val c = contacts[0]
-            // Всегда подтверждаем — для слепого пользователя это критично
-            pendingContact = c
             choosingContact = true
             contactList = contacts
             contactIndex = 0
-            speakOutShort("${c.name}. Звонить? Скажите да или нет")
+            speakOutShort("${c.name}. Звонить?")
             return
         }
         contactList = contacts
