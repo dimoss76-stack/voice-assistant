@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -39,6 +41,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var settings: VoiceSettings
     private lateinit var contactCaller: ContactCaller
+    private var toneGenerator: ToneGenerator? = null
 
     private var awaitingAnswer = false
     private var ttsSpeakingUntil = 0L
@@ -70,9 +73,25 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceAssistant::WakeLock")
         wakeLock?.acquire()
 
+        // Генератор короткого сигнала (бип)
+        try {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 80)
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Не удалось создать ToneGenerator: ${e.message}")
+        }
+
         tts = TextToSpeech(this, this)
         showNotification()
         initVoskSpeechEngine()
+    }
+
+    private fun beep() {
+        try {
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+            Log.e("MYVOSK", "Бип")
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка бипа: ${e.message}")
+        }
     }
 
     fun onIncomingCall(callerName: String) {
@@ -97,7 +116,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         Log.e("MYVOSK", "speakOutShort: $text")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val params = Bundle().apply {
-                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "call")
         } else {
@@ -296,22 +315,21 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     // === СВОБОДНЫЙ РЕЖИМ ДЛЯ ИМЕНИ ===
     private fun startListeningForName() {
         try {
-            // Останавливаем грамматический распознаватель
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
             Log.e("MYVOSK", "Грамматика остановлена, старт свободного распознавания")
 
             model?.let {
-                // Свободный распознаватель — без грамматики, без [unk]
                 val rec = Recognizer(it, 16000.0f)
                 speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
                 Log.e("MYVOSK", "Свободный распознаватель запущен на имя")
+                beep()
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListeningForName: ${e.message}", e)
-            startListening()  // откат
+            startListening()
         }
     }
 
@@ -325,16 +343,36 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
 
         // ========== ОЖИДАНИЕ ИМЕНИ (свободный режим) ==========
         if (awaitingName) {
-            Log.e("MYVOSK", "Свободный режим: услышано '$text'")
-            awaitingName = false
-            // Возобновляем грамматику после обработки
-            handler.postDelayed({ startListening() }, 500)
-
-            if (text.length < 2) {
-                speakOutShort("Не расслышал имя")
+            // Блокировка эха TTS
+            if (System.currentTimeMillis() < ignoreUntil) {
+                Log.e("MYVOSK", "Игнорирую эхо в awaitingName: '$text'")
                 return
             }
-            // Передаём имя в поиск
+
+            Log.e("MYVOSK", "Свободный режим: услышано '$text'")
+
+            val isCommandWord = text.contains("позвони") || text.contains("позвонить") ||
+                    text.contains("набери") || text.contains("набрать") ||
+                    text.contains("отмена") || text.contains("отменить") ||
+                    text.contains("стоп") || text.contains("хватит") ||
+                    text.contains("слушай") || text.contains("выключись") ||
+                    text.contains("кому")
+
+            if (isCommandWord) {
+                Log.e("MYVOSK", "Это команда, а не имя — переспрашиваю")
+                speakOutShort("Назовите имя")
+                handler.postDelayed({ startListeningForName() }, 3000L)
+                return
+            }
+
+            if (text.length < 2) {
+                speakOutShort("Не расслышал. Повторите")
+                handler.postDelayed({ startListeningForName() }, 3000L)
+                return
+            }
+
+            awaitingName = false
+            handler.postDelayed({ startListening() }, 500)
             handler.postDelayed({ startContactCall(text) }, 200)
             return
         }
@@ -454,10 +492,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             if (name.isEmpty() || name.length < 3 ||
                 name == "день" || name == "дата" || name == "время" ||
                 name == "часы" || name == "час") {
-                // Имени нет — переходим в свободный режим
                 awaitingName = true
                 speakOut("Кому позвонить?")
-                handler.postDelayed({ startListeningForName() }, 2500L)
+                handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
             startContactCall(name)
@@ -515,14 +552,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
     }
 
     private fun countWord(n: Int): String {
-        val lastDigit = n % 10
-        val lastTwo = n % 100
-        return when {
-            lastTwo in 11..14 -> "$n"
-            lastDigit == 1 -> "$n"
-            lastDigit in 2..4 -> "$n"
-            else -> "$n"
-        }
+        return "$n"
     }
 
     private fun ordinalWord(n: Int): String {
@@ -546,6 +576,8 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         wakeLock?.let { if (it.isHeld) it.release() }
         speechService?.stop(); speechService?.shutdown()
         tts?.stop(); tts?.shutdown()
+        try { toneGenerator?.release() } catch (_: Exception) {}
+        toneGenerator = null
         super.onDestroy()
     }
 }
