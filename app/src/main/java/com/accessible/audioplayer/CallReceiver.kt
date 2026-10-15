@@ -12,47 +12,31 @@ class CallReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
-
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
 
         when (state) {
             TelephonyManager.EXTRA_STATE_RINGING -> {
-                val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-                Log.e("MYVOSK", "Входящий звонок с номера: $incomingNumber")
-
-                val callerName = if (incomingNumber.isNullOrEmpty()) {
+                val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+                val name = if (number.isNullOrEmpty()) {
                     "Неизвестный номер"
                 } else {
-                    getContactName(context, incomingNumber) ?: "Неизвестный номер"
+                    getContactName(context, number) ?: "Неизвестный номер"
                 }
-                Log.e("MYVOSK", "Определено имя: $callerName")
+                Log.e("MYVOSK", "CallReceiver RINGING: $name")
 
-                // ВАЖНО: обычный startService, НЕ startForegroundService
-                val serviceIntent = Intent(context, VoiceService::class.java).apply {
-                    action = "INCOMING_CALL"
-                    putExtra("CALLER_NAME", callerName)
+                val broadcast = Intent("INCOMING_CALL_ACTION").apply {
+                    putExtra("CALLER_NAME", name)
+                    setPackage(context.packageName)
                 }
-                try {
-                    context.startService(serviceIntent)
-                } catch (e: Exception) {
-                    Log.e("MYVOSK", "Ошибка startService: ${e.message}", e)
-                }
+                context.sendBroadcast(broadcast)
             }
-
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                Log.e("MYVOSK", "Звонок принят (OFFHOOK)")
-                val serviceIntent = Intent(context, VoiceService::class.java).apply {
-                    action = "CALL_ANSWERED"
-                }
-                try { context.startService(serviceIntent) } catch (_: Exception) {}
+                Log.e("MYVOSK", "CallReceiver OFFHOOK")
+                context.sendBroadcast(Intent("CALL_ANSWERED_ACTION").setPackage(context.packageName))
             }
-
             TelephonyManager.EXTRA_STATE_IDLE -> {
-                Log.e("MYVOSK", "Звонок завершён (IDLE)")
-                val serviceIntent = Intent(context, VoiceService::class.java).apply {
-                    action = "CALL_ENDED"
-                }
-                try { context.startService(serviceIntent) } catch (_: Exception) {}
+                Log.e("MYVOSK", "CallReceiver IDLE")
+                context.sendBroadcast(Intent("CALL_ENDED_ACTION").setPackage(context.packageName))
             }
         }
     }
@@ -64,10 +48,8 @@ class CallReceiver : BroadcastReceiver() {
         )
         val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
         try {
-            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    return cursor.getString(0)
-                }
+            context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
+                if (c.moveToFirst()) return c.getString(0)
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка чтения контактов: ${e.message}", e)
