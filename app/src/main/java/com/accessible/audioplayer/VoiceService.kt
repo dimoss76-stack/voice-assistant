@@ -103,12 +103,10 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
     }
 
+    // Одинарный бип для имени — быстрее
     private fun beepName() {
         try {
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
-            handler.postDelayed({
-                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
-            }, 200)
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
             Log.e("MYVOSK", "Бип: имя")
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
     }
@@ -126,11 +124,9 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                     toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
                 }, 300)
                 Log.e("MYVOSK", "Бип: подтверждение (да/нет)")
-                // Пауза после бипа — подавление эха бипа
                 ignoreUntil = System.currentTimeMillis() + 300L
             } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
         }
-        // Бип через ignoreUntil + 200 мс
         val delayMs = (ignoreUntil - System.currentTimeMillis()) + 200L
         val safeDelay = delayMs.coerceAtLeast(0L)
         handler.postDelayed(confirmBeepRunnable!!, safeDelay)
@@ -148,6 +144,11 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
             Log.e("MYVOSK", "Бип: ок")
         } catch (e: Exception) { Log.e("MYVOSK", "Ошибка бипа: ${e.message}") }
+    }
+
+    // ========== ПРОВЕРКА: АКТИВЕН ЛИ РЕЖИМ ==========
+    private fun isAnyActiveMode(): Boolean {
+        return choosingContact || awaitingName || awaitingAnswer || inCallMonitoring || isActivated
     }
 
     // ========== ВХОДЯЩИЙ ЗВОНОК ==========
@@ -428,7 +429,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
         }
     }
 
-    // === ГРАММАТИКА С ИМЕНАМИ КОНТАКТОВ ===
+    // === ГРАММАТИКА С ИМЕНАМИ КОНТАКТОВ — по логике choosingContact ===
     private fun startListeningForName() {
         try {
             cancelSilenceTimeout()
@@ -469,14 +470,16 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 }
 
                 speechService = SpeechService(rec, 16000.0f)
+
+                // Логика как в choosingContact: бип → пауза → микрофон
                 beepName()
-                // Пауза после бипа имени — подавление эха
-                ignoreUntil = System.currentTimeMillis() + 500L
+                // Пауза после бипа — подавление эха бипа
+                ignoreUntil = System.currentTimeMillis() + 800L
                 handler.postDelayed({
                     speechService?.startListening(this)
                     Log.e("MYVOSK", "Распознавание имён запущено (${allNames.size} имён)")
                     startSilenceTimeout()
-                }, 300L)
+                }, 1000L)   // 1000 мс после бипа
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListeningForName: ${e.message}", e)
@@ -493,7 +496,7 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
                 handler.postDelayed({ startListeningForName() }, 3000L)
             }
         }
-        handler.postDelayed(silenceTimeout!!, 8000L)
+        handler.postDelayed(silenceTimeout!!, 10000L)   // 10 секунд вместо 8
     }
 
     private fun cancelSilenceTimeout() {
@@ -562,20 +565,25 @@ class VoiceService : Service(), org.vosk.android.RecognitionListener, TextToSpee
             return
         }
 
-        // ========== ЭКСТРЕННАЯ ОТМЕНА ==========
-        if (text.contains("отмена") || text.contains("отменить") ||
-            text.contains("стоп") || text.contains("хватит")) {
-            Log.e("MYVOSK", "Экстренная отмена")
-            choosingContact = false
-            awaitingName = false
-            awaitingAnswer = false
-            contactList = emptyList()
-            contactIndex = 0
-            cancelSilenceTimeout()
-            cancelChoosingTimeout()
-            beepOk()
-            speakOutShort("Отменено")
-            return
+        // ========== ЭКСТРЕННАЯ ОТМЕНА — ТОЛЬКО В АКТИВНЫХ РЕЖИМАХ (Вариант В) ==========
+        if (isAnyActiveMode()) {
+            if (text.contains("отмена") || text.contains("отменить") ||
+                text.contains("стоп") || text.contains("хватит")) {
+                Log.e("MYVOSK", "Экстренная отмена (активный режим)")
+                choosingContact = false
+                awaitingName = false
+                awaitingAnswer = false
+                isActivated = false
+                contactList = emptyList()
+                contactIndex = 0
+                cancelSilenceTimeout()
+                cancelChoosingTimeout()
+                beepOk()
+                speakOutShort("Отменено")
+                return
+            }
+        } else {
+            Log.e("MYVOSK", "Отмена вне активного режима — игнорирую")
         }
 
         // ========== ОЖИДАНИЕ ИМЕНИ ==========
