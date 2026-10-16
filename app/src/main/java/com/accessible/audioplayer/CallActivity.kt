@@ -33,7 +33,6 @@ class CallActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         instance = this
-        Log.e("MYVOSK", "CallActivity onCreate")
 
         // Показывать на заблокированном экране
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -51,7 +50,15 @@ class CallActivity : AppCompatActivity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        setContentView(R.layout.activity_call)
+        // Выбор layout'а по настройке
+        val settings = VoiceSettings(this)
+        val layoutId = if (settings.callButtonsLayout == 1) {
+            R.layout.activity_call_horizontal
+        } else {
+            R.layout.activity_call
+        }
+        setContentView(layoutId)
+        Log.e("MYVOSK", "CallActivity onCreate, layout=${settings.callButtonsLayout}")
 
         callerName = intent.getStringExtra("caller_name") ?: "Неизвестный"
 
