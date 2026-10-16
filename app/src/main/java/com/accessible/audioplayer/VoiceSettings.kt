@@ -35,4 +35,9 @@ class VoiceSettings(context: Context) {
     var showCallButtons: Boolean
         get() = prefs.getBoolean("show_call_buttons", true)
         set(value) = prefs.edit().putBoolean("show_call_buttons", value).apply()
+
+    // Расположение кнопок при звонке: 0 = вертикальные, 1 = горизонтальные
+    var callButtonsLayout: Int
+        get() = prefs.getInt("call_buttons_layout", 0)
+        set(value) = prefs.edit().putInt("call_buttons_layout", value).apply()
 }
