@@ -114,6 +114,56 @@ class ContactCaller(private val context: Context) {
         return unique
     }
 
+    // === ВСЕ КОНТАКТЫ С ИМЕНАМИ (отсортированные по алфавиту) ===
+    // Для чтения списка контактов вслух
+    fun getAllContactsSorted(): List<Contact> {
+        val result = mutableListOf<Contact>()
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e("MYVOSK", "Нет разрешения READ_CONTACTS для getAllContactsSorted")
+            return emptyList()
+        }
+
+        try {
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+            val cursor = context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                projection, null, null,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " COLLATE NOCASE ASC"
+            )
+
+            cursor?.use { c ->
+                val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val seen = mutableSetOf<String>()
+
+                while (c.moveToNext()) {
+                    val name = c.getString(nameIdx)?.trim() ?: continue
+                    val number = c.getString(numIdx) ?: continue
+
+                    // Фильтр: только кириллица, длина >= 2
+                    if (name.length >= 2 &&
+                        name.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }) {
+                        // Один контакт — одно имя (без дубликатов номеров)
+                        val key = name.lowercase() + "|" + number
+                        if (seen.add(key)) {
+                            result.add(Contact(name, number))
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка чтения контактов: ${e.message}", e)
+        }
+
+        Log.e("MYVOSK", "Всего контактов для чтения: ${result.size}")
+        return result
+    }
+
     // Позвонить по номеру — через TelecomManager (обход BAL на Android 14+)
     fun callNumber(number: String): Boolean {
         // Очищаем номер от всего, кроме цифр и +
