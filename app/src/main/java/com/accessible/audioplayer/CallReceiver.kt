@@ -34,14 +34,22 @@ class CallReceiver : BroadcastReceiver() {
                 val settings = VoiceSettings(context)
                 if (settings.showCallButtons) {
                     try {
+                        // Закрыть старую CallActivity, если открыта
+                        val old = CallActivity.instance
+                        if (old != null) {
+                            Log.e("MYVOSK", "CallReceiver: закрываю старую CallActivity")
+                            old.finish()
+                            CallActivity.instance = null
+                        }
+
+                        // Запустить новую
                         val callIntent = Intent(context, CallActivity::class.java).apply {
                             putExtra("caller_name", name)
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         }
                         context.startActivity(callIntent)
-                        Log.e("MYVOSK", "CallActivity запущена для $name")
+                        Log.e("MYVOSK", "CallReceiver: CallActivity запущена для $name")
                     } catch (e: Exception) {
                         Log.e("MYVOSK", "Ошибка запуска CallActivity: ${e.message}", e)
                     }
@@ -50,14 +58,16 @@ class CallReceiver : BroadcastReceiver() {
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 Log.e("MYVOSK", "CallReceiver OFFHOOK")
                 service?.onCallAnswered()
-                // Закрыть CallActivity, если открыта
+                // Закрыть CallActivity
                 CallActivity.instance?.finish()
+                CallActivity.instance = null
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
                 Log.e("MYVOSK", "CallReceiver IDLE")
                 service?.onCallEnded()
-                // Закрыть CallActivity, если открыта
+                // Закрыть CallActivity
                 CallActivity.instance?.finish()
+                CallActivity.instance = null
             }
         }
     }
