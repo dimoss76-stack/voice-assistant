@@ -2,6 +2,7 @@ package com.accessible.audioplayer
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -34,6 +35,9 @@ class CallActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         instance = this
 
+        // Логи
+        Log.e("MYVOSK", "CallActivity onCreate НАЧАЛО")
+
         // Показывать на заблокированном экране
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -58,9 +62,10 @@ class CallActivity : AppCompatActivity() {
             R.layout.activity_call
         }
         setContentView(layoutId)
-        Log.e("MYVOSK", "CallActivity onCreate, layout=${settings.callButtonsLayout}")
+        Log.e("MYVOSK", "CallActivity onCreate: layout=${settings.callButtonsLayout}")
 
         callerName = intent.getStringExtra("caller_name") ?: "Неизвестный"
+        Log.e("MYVOSK", "CallActivity onCreate: caller=$callerName")
 
         val nameView = findViewById<TextView>(R.id.callerName)
         nameView.text = "Звонит\n$callerName"
@@ -83,10 +88,24 @@ class CallActivity : AppCompatActivity() {
         }
 
         // Автозакрытие через 30 секунд
+        handler.removeCallbacks(autoCloseRunnable)
         handler.postDelayed(autoCloseRunnable, AUTO_CLOSE_MS)
+
+        Log.e("MYVOSK", "CallActivity onCreate КОНЕЦ")
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        Log.e("MYVOSK", "CallActivity onNewIntent")
+        // Обновляем имя звонящего
+        callerName = intent?.getStringExtra("caller_name") ?: "Неизвестный"
+        val nameView = findViewById<TextView>(R.id.callerName)
+        nameView?.text = "Звонит\n$callerName"
+        Log.e("MYVOSK", "CallActivity onNewIntent: caller=$callerName")
     }
 
     override fun onDestroy() {
+        Log.e("MYVOSK", "CallActivity onDestroy")
         instance = null
         handler.removeCallbacks(autoCloseRunnable)
         super.onDestroy()
