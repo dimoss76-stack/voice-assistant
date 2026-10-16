@@ -55,7 +55,8 @@ class VoskEngine(
                     "да", "нет", "возьми", "сбрось", "отклони",
                     "взять", "поднять",
                     "позвони", "позвонить", "набери", "набрать",
-                    "отмена", "отменить"
+                    "отмена", "отменить",
+                    "контакты", "список", "покажи"
                 ]"""
 
                 val rec = Recognizer(it, 16000.0f, grammar)
@@ -137,6 +138,29 @@ class VoskEngine(
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListeningForHangup: ${e.message}", e)
+        }
+    }
+
+    // ========== ГРАММАТИКА ЧТЕНИЯ КОНТАКТОВ ==========
+    // Слушаем только "стоп", "отмена", "хватит" — чтобы прервать чтение
+    fun startListeningForStop() {
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+            speechService = null
+
+            model?.let { m ->
+                val grammar = """[
+                    "стоп", "отмена", "отменить", "хватит",
+                    "остановись", "прекрати"
+                ]"""
+                val rec = Recognizer(m, 16000.0f, grammar)
+                speechService = SpeechService(rec, 16000.0f)
+                speechService?.startListening(this)
+                Log.e("MYVOSK", "✅ Грамматика 'стоп' активна")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка startListeningForStop: ${e.message}", e)
         }
     }
 
