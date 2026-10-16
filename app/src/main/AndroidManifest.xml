@@ -49,6 +49,16 @@
             android:exported="false"
             android:label="Помощь" />
 
+        <!-- Экран входящего звонка -->
+        <activity
+            android:name="com.accessible.audioplayer.CallActivity"
+            android:exported="false"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
         <service
             android:name="com.accessible.audioplayer.VoiceService"
             android:foregroundServiceType="microphone"
