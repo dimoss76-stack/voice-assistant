@@ -30,4 +30,9 @@ class VoiceSettings(context: Context) {
     var modelMode: Int
         get() = prefs.getInt("model_mode", 0)
         set(value) = prefs.edit().putInt("model_mode", value).apply()
+
+    // Показывать кнопки при входящем звонке
+    var showCallButtons: Boolean
+        get() = prefs.getBoolean("show_call_buttons", true)
+        set(value) = prefs.edit().putBoolean("show_call_buttons", value).apply()
 }
