@@ -26,15 +26,38 @@ class CallReceiver : BroadcastReceiver() {
                     getContactName(context, number) ?: "Неизвестный номер"
                 }
                 Log.e("MYVOSK", "CallReceiver RINGING: $name")
+
+                // Голосовое управление
                 service?.onIncomingCall(name)
+
+                // Кнопки на экране (если включено)
+                val settings = VoiceSettings(context)
+                if (settings.showCallButtons) {
+                    try {
+                        val callIntent = Intent(context, CallActivity::class.java).apply {
+                            putExtra("caller_name", name)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        context.startActivity(callIntent)
+                        Log.e("MYVOSK", "CallActivity запущена для $name")
+                    } catch (e: Exception) {
+                        Log.e("MYVOSK", "Ошибка запуска CallActivity: ${e.message}", e)
+                    }
+                }
             }
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 Log.e("MYVOSK", "CallReceiver OFFHOOK")
                 service?.onCallAnswered()
+                // Закрыть CallActivity, если открыта
+                CallActivity.instance?.finish()
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
                 Log.e("MYVOSK", "CallReceiver IDLE")
                 service?.onCallEnded()
+                // Закрыть CallActivity, если открыта
+                CallActivity.instance?.finish()
             }
         }
     }
