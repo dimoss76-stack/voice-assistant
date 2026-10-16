@@ -11,6 +11,8 @@ import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +26,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var modelStatusText: TextView
     private lateinit var btnToggleModel: Button
     private lateinit var checkShowCallButtons: CheckBox
+    private lateinit var radioLayout: RadioGroup
+    private lateinit var radioVertical: RadioButton
+    private lateinit var radioHorizontal: RadioButton
 
     private var editActivation: EditText? = null
     private var editConfirm: EditText? = null
@@ -71,6 +76,9 @@ class SettingsActivity : AppCompatActivity() {
         modelStatusText = findViewById(R.id.modelStatusText)
         btnToggleModel = findViewById(R.id.btnDownloadLarge)
         checkShowCallButtons = findViewById(R.id.checkShowCallButtons)
+        radioLayout = findViewById(R.id.radioLayout)
+        radioVertical = findViewById(R.id.radioVertical)
+        radioHorizontal = findViewById(R.id.radioHorizontal)
 
         // Заполняем поля
         editActivation?.setText(settings.activationWord)
@@ -79,6 +87,13 @@ class SettingsActivity : AppCompatActivity() {
         editDate?.setText(settings.dateWord)
         editShutdown?.setText(settings.shutdownWord)
         checkShowCallButtons.isChecked = settings.showCallButtons
+
+        // Радио: вертикальные / горизонтальные
+        if (settings.callButtonsLayout == 1) {
+            radioHorizontal.isChecked = true
+        } else {
+            radioVertical.isChecked = true
+        }
 
         // Кнопки записи слов
         findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
@@ -95,6 +110,7 @@ class SettingsActivity : AppCompatActivity() {
             settings.dateWord = editDate?.text.toString()
             settings.shutdownWord = editShutdown?.text.toString()
             settings.showCallButtons = checkShowCallButtons.isChecked
+            settings.callButtonsLayout = if (radioHorizontal.isChecked) 1 else 0
             Toast.makeText(this, "Сохранено. Перезапустите помощника.", Toast.LENGTH_LONG).show()
             finish()
         }
