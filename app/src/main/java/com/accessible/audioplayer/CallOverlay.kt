@@ -33,8 +33,11 @@ class CallOverlay(private val context: Context) {
     }
 
     fun show(callerName: String) {
+        // Если overlay уже показан — просто обновляем имя
         if (overlayView != null) {
-            Log.e("MYVOSK", "CallOverlay уже показан")
+            val nameView = overlayView?.findViewById<TextView>(R.id.callerName)
+            nameView?.text = "Звонит\n$callerName"
+            Log.e("MYVOSK", "CallOverlay обновлён: $callerName")
             return
         }
 
@@ -90,9 +93,12 @@ class CallOverlay(private val context: Context) {
             Log.e("MYVOSK", "CallOverlay показан для $callerName")
 
             // Автозакрытие
+            handler.removeCallbacks(autoCloseRunnable)
             handler.postDelayed(autoCloseRunnable, AUTO_CLOSE_MS)
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка показа CallOverlay: ${e.message}", e)
+            overlayView = null
+            instance = null
         }
     }
 
