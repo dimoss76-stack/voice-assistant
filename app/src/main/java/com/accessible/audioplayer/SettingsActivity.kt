@@ -1,12 +1,12 @@
 package com.accessible.audioplayer
 
-import android.app.Activity
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.Looper
 import android.os.ResultReceiver
-import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
@@ -14,32 +14,43 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var settings: VoiceSettings
-    private lateinit var editActivation: EditText
-    private lateinit var editConfirm: EditText
-    private lateinit var editTime: EditText
-    private lateinit var editDate: EditText
-    private lateinit var editShutdown: EditText
+    private lateinit var statusText: TextView
+    private lateinit var modelStatusText: TextView
+    private lateinit var btnToggleModel: Button
     private lateinit var checkShowCallButtons: CheckBox
 
-    private var recordingField: String = ""
+    private var editActivation: EditText? = null
+    private var editConfirm: EditText? = null
+    private var editTime: EditText? = null
+    private var editDate: EditText? = null
+    private var editShutdown: EditText? = null
 
-    private val wordReceiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
-        override fun onReceiveResult(resultCode: Int, resultData: Bundle) {
-            val field = resultData.getString("FIELD") ?: return
+    private var currentFieldName: String = ""
+
+    private val resultReceiver = object : ResultReceiver(Handler()) {
+        override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+            val field = resultData?.getString("FIELD") ?: return
             val word = resultData.getString("WORD") ?: ""
-            Log.e("MYVOSK", "Получено слово для '$field': '$word'")
-            runOnUiThread {
-                when (field) {
-                    "activation" -> editActivation.setText(word)
-                    "confirm" -> editConfirm.setText(word)
-                    "time" -> editTime.setText(word)
-                    "date" -> editDate.setText(word)
-                    "shutdown" -> editShutdown.setText(word)
+            if (field != currentFieldName) return
+            if (word.isNotEmpty()) {
+                val target = when (field) {
+                    "activation" -> editActivation
+                    "confirm" -> editConfirm
+                    "time" -> editTime
+                    "date" -> editDate
+                    "shutdown" -> editShutdown
+                    else -> null
                 }
+                target?.setText(word)
+                statusText.text = "Распознано: $word"
+            } else {
+                statusText.text = "Не расслышал, попробуйте ещё раз"
             }
         }
     }
@@ -47,7 +58,6 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
-
         settings = VoiceSettings(this)
 
         editActivation = findViewById(R.id.editActivation)
@@ -55,54 +65,101 @@ class SettingsActivity : AppCompatActivity() {
         editTime = findViewById(R.id.editTime)
         editDate = findViewById(R.id.editDate)
         editShutdown = findViewById(R.id.editShutdown)
+        val btnSave = findViewById<Button>(R.id.btnSave)
+        val btnBack = findViewById<Button>(R.id.btnBack)
+        statusText = findViewById(R.id.statusText)
+        modelStatusText = findViewById(R.id.modelStatusText)
+        btnToggleModel = findViewById(R.id.btnDownloadLarge)
         checkShowCallButtons = findViewById(R.id.checkShowCallButtons)
 
-        editActivation.setText(settings.activationWord)
-        editConfirm.setText(settings.confirmWord)
-        editTime.setText(settings.timeWord)
-        editDate.setText(settings.dateWord)
-        editShutdown.setText(settings.shutdownWord)
+        // Заполняем поля
+        editActivation?.setText(settings.activationWord)
+        editConfirm?.setText(settings.confirmWord)
+        editTime?.setText(settings.timeWord)
+        editDate?.setText(settings.dateWord)
+        editShutdown?.setText(settings.shutdownWord)
         checkShowCallButtons.isChecked = settings.showCallButtons
 
-        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener {
-            startWordRecording("activation")
-        }
-        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener {
-            startWordRecording("confirm")
-        }
-        findViewById<Button>(R.id.btnRecordTime).setOnClickListener {
-            startWordRecording("time")
-        }
-        findViewById<Button>(R.id.btnRecordDate).setOnClickListener {
-            startWordRecording("date")
-        }
-        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener {
-            startWordRecording("shutdown")
-        }
+        // Кнопки записи слов
+        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
+        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor("confirm") }
+        findViewById<Button>(R.id.btnRecordTime).setOnClickListener { startRecordingFor("time") }
+        findViewById<Button>(R.id.btnRecordDate).setOnClickListener { startRecordingFor("date") }
+        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor("shutdown") }
 
-        findViewById<Button>(R.id.btnSave).setOnClickListener {
-            settings.activationWord = editActivation.text.toString()
-            settings.confirmWord = editConfirm.text.toString()
-            settings.timeWord = editTime.text.toString()
-            settings.dateWord = editDate.text.toString()
-            settings.shutdownWord = editShutdown.text.toString()
+        // Сохранить
+        btnSave.setOnClickListener {
+            settings.activationWord = editActivation?.text.toString()
+            settings.confirmWord = editConfirm?.text.toString()
+            settings.timeWord = editTime?.text.toString()
+            settings.dateWord = editDate?.text.toString()
+            settings.shutdownWord = editShutdown?.text.toString()
             settings.showCallButtons = checkShowCallButtons.isChecked
-
-            Toast.makeText(this, "Сохранено", Toast.LENGTH_SHORT).show()
-            Log.e("MYVOSK", "Настройки сохранены")
+            Toast.makeText(this, "Сохранено. Перезапустите помощника.", Toast.LENGTH_LONG).show()
             finish()
         }
 
-        findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        // Назад
+        btnBack.setOnClickListener { finish() }
+
+        // Переключение модели
+        btnToggleModel.setOnClickListener {
+            settings.modelMode = if (settings.modelMode == 0) 1 else 0
+            updateModelUI()
+            Toast.makeText(
+                this,
+                if (settings.modelMode == 1) "Включена streaming-модель. Перезапустите помощника."
+                else "Вернулись к стандартной. Перезапустите помощника.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        updateModelUI()
     }
 
-    private fun startWordRecording(field: String) {
-        recordingField = field
+    private fun updateModelUI() {
+        val streamingDir = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+            "VoiceAssistant/vosk-model-small-streaming-ru"
+        )
+        val streamingReady = streamingDir.exists() && streamingDir.listFiles()?.isNotEmpty() == true
+
+        if (!streamingReady) {
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nStreaming-модель не найдена.\nСкопируйте папку vosk-model-small-streaming-ru в Download/VoiceAssistant/"
+            btnToggleModel.text = "STREAMING-МОДЕЛЬ НЕ НАЙДЕНА"
+            btnToggleModel.isEnabled = false
+            return
+        }
+
+        if (settings.modelMode == 1) {
+            modelStatusText.text = "Модель: streaming (569 МБ, используется)"
+            btnToggleModel.text = "ВЕРНУТЬСЯ К СТАНДАРТНОЙ"
+        } else {
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (569 МБ)"
+            btnToggleModel.text = "ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
+        }
+        btnToggleModel.isEnabled = true
+    }
+
+    private fun startRecordingFor(fieldName: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 200)
+            return
+        }
+
+        currentFieldName = fieldName
+        statusText.text = "Говорите…"
+
         val intent = Intent(this, VoiceService::class.java).apply {
             action = "RECORD_WORD"
-            putExtra("FIELD", field)
-            putExtra("RECEIVER", wordReceiver)
+            putExtra("FIELD", fieldName)
+            putExtra("RECEIVER", resultReceiver)
         }
-        startService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
     }
 }
