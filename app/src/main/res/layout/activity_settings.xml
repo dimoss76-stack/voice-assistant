@@ -63,71 +63,34 @@
                 android:text="🎤" />
         </LinearLayout>
 
-        <TextView
+        <!-- РАЗДЕЛ: ВЫКЛЮЧЕНИЕ -->
+        <View
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Команда времени (без активации):"
-            android:textSize="16sp"
-            android:paddingTop="15dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/editTime"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="часы"
-                android:textSize="18sp" />
-
-            <Button
-                android:id="@+id/btnRecordTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🎤" />
-        </LinearLayout>
+            android:layout_height="1dp"
+            android:layout_marginTop="25dp"
+            android:background="#888888" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Команда даты (без активации):"
-            android:textSize="16sp"
-            android:paddingTop="15dp" />
+            android:layout_marginTop="15dp"
+            android:text="ВЫКЛЮЧЕНИЕ"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <CheckBox
+            android:id="@+id/checkShutdownEnabled"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Разрешить выключение голосом"
+            android:textSize="16sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/editDate"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="дата"
-                android:textSize="18sp" />
-
-            <Button
-                android:id="@+id/btnRecordDate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🎤" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Команда выключения:"
-            android:textSize="16sp"
-            android:paddingTop="15dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
 
             <EditText
                 android:id="@+id/editShutdown"
