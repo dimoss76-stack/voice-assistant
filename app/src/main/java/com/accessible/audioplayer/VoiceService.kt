@@ -67,11 +67,9 @@ class VoiceService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceAssistant::WakeLock")
         wakeLock?.acquire()
 
-        // TTS + бипы
         tts = TtsSpeaker(this)
         tts.init()
 
-        // Vosk
         vosk = VoskEngine(
             context = this,
             onResultCallback = { text -> handleRecognizedText(text) },
@@ -235,13 +233,12 @@ class VoiceService : Service() {
 
         if (recordingMode) return
 
-        // ========== БЛОКИРОВКА ЭХА ==========
         if (System.currentTimeMillis() < tts.ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
             return
         }
 
-        // ========== РЕЖИМ МОНИТОРИНГА ==========
+        // РЕЖИМ МОНИТОРИНГА
         if (inCallMonitoring) {
             val words = text.split(" ").toSet()
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
@@ -268,7 +265,7 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ЭКСТРЕННАЯ ОТМЕНА (Вариант В) ==========
+        // ЭКСТРЕННАЯ ОТМЕНА (Вариант В)
         if (isAnyActiveMode()) {
             if (text.contains("отмена") || text.contains("отменить") ||
                 text.contains("стоп") || text.contains("хватит")) {
@@ -289,7 +286,7 @@ class VoiceService : Service() {
             Log.e("MYVOSK", "Отмена вне активного режима — игнорирую")
         }
 
-        // ========== ОЖИДАНИЕ ИМЕНИ ==========
+        // ОЖИДАНИЕ ИМЕНИ
         if (awaitingName) {
             cancelSilenceTimeout()
             Log.e("MYVOSK", "Распознавание имени: '$text'")
@@ -322,7 +319,7 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ВЫБОР КОНТАКТА ==========
+        // ВЫБОР КОНТАКТА
         if (choosingContact) {
             cancelChoosingTimeout()
             val hasDa = text.contains("да") || text.contains("возьми") ||
@@ -372,7 +369,7 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ВХОДЯЩИЙ ЗВОНОК ==========
+        // ВХОДЯЩИЙ ЗВОНОК
         if (awaitingAnswer) {
             val hasDa = text.contains("да") || text.contains("возьми") ||
                         text.contains("взять") || text.contains("поднять") || text == "д"
@@ -404,7 +401,7 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== АКТИВАЦИЯ ==========
+        // АКТИВАЦИЯ
         if (!isActivated) {
             if (text.contains(activation)) {
                 if (System.currentTimeMillis() - lastActivationTime < 3000) return
@@ -435,7 +432,7 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
-        // === ЗВОНОК ===
+        // ЗВОНОК
         if (command.contains("позвони") || command.contains("позвонить") ||
             command.contains("набери") || command.contains("набрать")) {
 
@@ -457,14 +454,14 @@ class VoiceService : Service() {
             return
         }
 
-        // === ВРЕМЯ ===
+        // ВРЕМЯ
         if (command.contains("время") || command.contains("час") || command.contains("сколько")) {
             val f = SimpleDateFormat("HH:mm", Locale("ru"))
             tts.speakOut("Сейчас ${f.format(calendar.time)}")
             return
         }
 
-        // === ДАТА ===
+        // ДАТА
         if (command.contains("день") || command.contains("дата") || command.contains("число")) {
             val f = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
             tts.speakOut("Сегодня ${f.format(calendar.time)}")
@@ -571,3 +568,13 @@ class VoiceService : Service() {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(1, notification)
+        }
+    }
+}
