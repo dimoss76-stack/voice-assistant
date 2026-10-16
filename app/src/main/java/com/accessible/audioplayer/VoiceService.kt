@@ -485,4 +485,203 @@ class VoiceService : Service() {
             }
             if (hasDa) {
                 tts.beepOk()
-                tts.speakOutShort("Отве
+                tts.speakOutShort("Отвечаю")
+                acceptCall()
+                awaitingAnswer = false
+                return
+            }
+            return
+        }
+
+        val activation = settings.activationWord
+        val shutdownWord = settings.shutdownWord
+
+        if (text.contains(shutdownWord)) {
+            tts.speakOut("Выключаюсь")
+            handler.postDelayed({ stopSelf(); System.exit(0) }, 1500)
+            return
+        }
+
+        // АКТИВАЦИЯ
+        if (!isActivated) {
+            if (text.contains(activation)) {
+                if (System.currentTimeMillis() - lastActivationTime < 3000) return
+                lastActivationTime = System.currentTimeMillis()
+                isActivated = true
+                val cmd = text.replace(activation, "").trim()
+                if (cmd.isNotEmpty()) {
+                    executeCommand(cmd)
+                    isActivated = false
+                } else {
+                    tts.beepListen()
+                    handler.postDelayed({ tts.speakOut(settings.confirmWord) }, 200)
+                    handler.removeCallbacks(resetActivation)
+                    handler.postDelayed(resetActivation, 15000L)
+                }
+            }
+        } else {
+            if (text == activation) return
+            if (text.length < 3) return
+            executeCommand(text)
+            handler.removeCallbacks(resetActivation)
+            isActivated = false
+        }
+    }
+
+    // ==================== КОМАНДЫ ====================
+    private fun executeCommand(command: String) {
+        Log.e("MYVOSK", "executeCommand: '$command'")
+        val calendar = Calendar.getInstance()
+
+        // КОНТАКТЫ — чтение списка
+        if (command.contains("контакты") || command.contains("список")) {
+            startReadingContacts()
+            return
+        }
+
+        // ЗВОНОК
+        if (command.contains("позвони") || command.contains("позвонить") ||
+            command.contains("набери") || command.contains("набрать")) {
+
+            val name = command
+                .replace("позвонить", "").replace("позвони", "")
+                .replace("набрать", "").replace("набери", "").trim()
+
+            Log.e("MYVOSK", "Имя в команде: '$name'")
+
+            if (name.isEmpty() || name.length < 3 ||
+                name == "день" || name == "дата" || name == "время" ||
+                name == "часы" || name == "час") {
+                awaitingName = true
+                tts.speakOut("Каму звонить?")
+                handler.postDelayed({ startListeningForName() }, 3000L)
+                return
+            }
+            startContactCall(name)
+            return
+        }
+
+        // ВРЕМЯ
+        if (command.contains("время") || command.contains("час") || command.contains("сколько")) {
+            val f = SimpleDateFormat("HH:mm", Locale("ru"))
+            tts.speakOut("Сейчас ${f.format(calendar.time)}")
+            return
+        }
+
+        // ДАТА
+        if (command.contains("день") || command.contains("дата") || command.contains("число")) {
+            val f = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
+            tts.speakOut("Сегодня ${f.format(calendar.time)}")
+            return
+        }
+
+        tts.beepError()
+        tts.speakOut("Не понял")
+    }
+
+    private fun startContactCall(query: String) {
+        Log.e("MYVOSK", "startContactCall: '$query'")
+        val contacts = contactCaller.findContacts(query)
+
+        if (contacts.isEmpty()) {
+            tts.beepError()
+            tts.speakOut("Контакт не найден. Назовите другое имя")
+            awaitingName = true
+            handler.postDelayed({ startListeningForName() }, 6000L)
+            return
+        }
+        if (contacts.size == 1) {
+            val c = contacts[0]
+            choosingContact = true
+            contactList = contacts
+            contactIndex = 0
+            tts.speakOutShort("${c.name}. Звонить?")
+            handler.postDelayed({ startListening() }, 100L)
+            tts.scheduleConfirmBeep()
+            startChoosingTimeout()
+            return
+        }
+        contactList = contacts
+        contactIndex = 0
+        choosingContact = true
+        val first = contacts[0]
+        val ordinal = ordinalWord(1)
+        tts.speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
+        handler.postDelayed({ startListening() }, 100L)
+        tts.scheduleConfirmBeep()
+        startChoosingTimeout()
+    }
+
+    private fun ordinalWord(n: Int): String {
+        return when (n) {
+            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"
+            4 -> "Четвёртый"; 5 -> "Пятый"; 6 -> "Шестой"
+            7 -> "Седьмой"; 8 -> "Восьмой"; 9 -> "Девятый"
+            10 -> "Десятый"; else -> "$n-й"
+        }
+    }
+
+    // ==================== ЗАПИСЬ СЛОВА ====================
+    private fun startWordRecording(fieldName: String) {
+        recordingFieldName = fieldName
+        recordingMode = true
+        tts.speakOut("Говорите")
+        handler.postDelayed({
+            sendWordResult("")
+        }, 5000L)
+    }
+
+    private fun sendWordResult(text: String) {
+        handler.post {
+            val bundle = Bundle().apply {
+                putString("FIELD", recordingFieldName)
+                putString("WORD", text)
+            }
+            try { resultReceiver?.send(0, bundle) } catch (_: Exception) {}
+            recordingMode = false
+            recordingFieldName = ""
+        }
+    }
+
+    // ==================== ВСПОМОГАТЕЛЬНОЕ ====================
+    private fun acceptCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
+                tm.acceptRingingCall()
+            }
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
+    }
+
+    private fun rejectCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
+                tm.endCall()
+            }
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
+    }
+
+    private fun showNotification() {
+        val channelId = "voice_service_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
+        val notification: Notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Помощник активен")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(1, notification)
+        }
+    }
+}
