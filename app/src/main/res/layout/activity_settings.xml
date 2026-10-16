@@ -168,6 +168,37 @@
             android:textSize="16sp"
             android:checked="true" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="15dp"
+            android:text="Расположение кнопок:"
+            android:textSize="16sp" />
+
+        <RadioGroup
+            android:id="@+id/radioLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/radioVertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Вертикальные (ОТВЕТИТЬ вверху, СБРОСИТЬ внизу)"
+                android:textSize="16sp"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/radioHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Горизонтальные (СБРОСИТЬ слева, ОТВЕТИТЬ справа)"
+                android:textSize="16sp" />
+
+        </RadioGroup>
+
         <!-- РАЗДЕЛ: КАЧЕСТВО РАСПОЗНАВАНИЯ -->
         <View
             android:layout_width="match_parent"
