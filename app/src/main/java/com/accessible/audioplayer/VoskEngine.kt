@@ -18,7 +18,6 @@ class VoskEngine(
     private var model: Model? = null
     private var speechService: SpeechService? = null
 
-    // Колбэк готовности модели
     var onModelReady: (() -> Unit)? = null
 
     // ========== ИНИЦИАЛИЗАЦИЯ ==========
@@ -40,6 +39,68 @@ class VoskEngine(
             Log.e("MYVOSK", "Исключение: ${e.message}", e)
             onErrorCallback(e)
         }
+    }
+
+    // ========== ЗАПИСЬ ОДНОГО СЛОВА (для настроек) ==========
+    // Возвращает распознанное слово или пустую строку
+    fun recordSingleWord(durationMs: Long = 5000L): String {
+        val m = model ?: return ""
+
+        var audioRecord: android.media.AudioRecord? = null
+        var recognizer: Recognizer? = null
+
+        try {
+            val sampleRate = 16000
+            val bufferSize = android.media.AudioRecord.getMinBufferSize(
+                sampleRate,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            audioRecord = android.media.AudioRecord(
+                android.media.MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize * 4
+            )
+            if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
+                Log.e("MYVOSK", "AudioRecord не инициализирован")
+                return ""
+            }
+            recognizer = Recognizer(m, 16000.0f)
+            audioRecord.startRecording()
+
+            val buffer = ShortArray(bufferSize)
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < durationMs) {
+                val read = audioRecord.read(buffer, 0, buffer.size)
+                if (read > 0) recognizer.acceptWaveForm(buffer, read)
+            }
+
+            val json = recognizer.finalResult
+            val text = extractText(json)
+            Log.e("MYVOSK", "Записано слово: '$text'")
+            return text
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка записи слова: ${e.message}", e)
+            return ""
+        } finally {
+            try { audioRecord?.stop() } catch (_: Exception) {}
+            try { audioRecord?.release() } catch (_: Exception) {}
+            try { recognizer?.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun extractText(json: String): String {
+        return try {
+            val start = json.indexOf("\"text\"")
+            if (start < 0) return ""
+            val afterColon = json.indexOf(":", start) + 1
+            val firstQuote = json.indexOf("\"", afterColon) + 1
+            val secondQuote = json.indexOf("\"", firstQuote)
+            if (firstQuote <= 0 || secondQuote <= 0) return ""
+            json.substring(firstQuote, secondQuote).trim()
+        } catch (e: Exception) { "" }
     }
 
     // ========== ОСНОВНАЯ ГРАММАТИКА ==========
@@ -79,28 +140,15 @@ class VoskEngine(
             speechService = null
 
             model?.let { m ->
-                val namesJson = if (names.isEmpty()) {
-                    ""
-                } else {
-                    names.joinToString(",") { "\"$it\"" }
-                }
+                val namesJson = if (names.isEmpty()) "" else names.joinToString(",") { "\"$it\"" }
 
-                val grammar = if (namesJson.isEmpty()) {
-                    null
-                } else {
-                    """[
-                        $namesJson,
-                        "отмена", "отменить", "стоп", "хватит",
-                        "назад"
-                    ]"""
-                }
+                val grammar = if (namesJson.isEmpty()) null else """[
+                    $namesJson,
+                    "отмена", "отменить", "стоп", "хватит",
+                    "назад"
+                ]"""
 
-                val rec = if (grammar != null) {
-                    Recognizer(m, 16000.0f, grammar)
-                } else {
-                    Recognizer(m, 16000.0f)
-                }
-
+                val rec = if (grammar != null) Recognizer(m, 16000.0f, grammar) else Recognizer(m, 16000.0f)
                 speechService = SpeechService(rec, 16000.0f)
                 Log.e("MYVOSK", "Распознавание имён готово (${names.size} имён)")
             }
@@ -109,7 +157,6 @@ class VoskEngine(
         }
     }
 
-    // Запуск распознавания после паузы
     fun startListeningNow() {
         try {
             speechService?.startListening(this)
@@ -142,7 +189,6 @@ class VoskEngine(
     }
 
     // ========== ГРАММАТИКА ЧТЕНИЯ КОНТАКТОВ ==========
-    // Слушаем только "стоп", "отмена", "хватит" — чтобы прервать чтение
     fun startListeningForStop() {
         try {
             speechService?.stop()
