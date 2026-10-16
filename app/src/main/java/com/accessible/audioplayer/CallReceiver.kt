@@ -30,29 +30,34 @@ class CallReceiver : BroadcastReceiver() {
                 // Голосовое управление
                 service?.onIncomingCall(name)
 
-                // Overlay-кнопки (если включено)
+                // Кнопки на экране (если включено)
                 val settings = VoiceSettings(context)
                 if (settings.showCallButtons) {
                     try {
-                        val overlay = CallOverlay(context)
-                        overlay.show(name)
-                        Log.e("MYVOSK", "CallOverlay запущен для $name")
+                        val callIntent = Intent(context, CallActivity::class.java).apply {
+                            putExtra("caller_name", name)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        context.startActivity(callIntent)
+                        Log.e("MYVOSK", "CallActivity запущена для $name")
                     } catch (e: Exception) {
-                        Log.e("MYVOSK", "Ошибка запуска CallOverlay: ${e.message}", e)
+                        Log.e("MYVOSK", "Ошибка запуска CallActivity: ${e.message}", e)
                     }
                 }
             }
             TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 Log.e("MYVOSK", "CallReceiver OFFHOOK")
                 service?.onCallAnswered()
-                // Скрыть overlay
-                CallOverlay.instance?.hide()
+                // Закрыть CallActivity, если открыта
+                CallActivity.instance?.finish()
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
                 Log.e("MYVOSK", "CallReceiver IDLE")
                 service?.onCallEnded()
-                // Скрыть overlay
-                CallOverlay.instance?.hide()
+                // Закрыть CallActivity, если открыта
+                CallActivity.instance?.finish()
             }
         }
     }

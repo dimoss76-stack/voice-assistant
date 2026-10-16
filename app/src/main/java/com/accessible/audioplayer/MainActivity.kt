@@ -12,8 +12,6 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import android.net.Uri
-import android.provider.Settings
 
 class MainActivity : AppCompatActivity() {
 
@@ -75,62 +73,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionsAndStart() {
-    val permissions = mutableListOf<String>()
-    if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-        != PackageManager.PERMISSION_GRANTED) {
-        permissions.add(Manifest.permission.RECORD_AUDIO)
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-        != PackageManager.PERMISSION_GRANTED) {
-        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-    }
-    val extraPerms = listOf(
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CALL_LOG,
-        Manifest.permission.READ_CONTACTS,
-        Manifest.permission.ANSWER_PHONE_CALLS,
-        Manifest.permission.CALL_PHONE
-    )
-    for (perm in extraPerms) {
-        if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(perm)
+        val permissions = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.RECORD_AUDIO)
         }
-    }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val extraPerms = listOf(
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.ANSWER_PHONE_CALLS,
+            Manifest.permission.CALL_PHONE
+        )
+        for (perm in extraPerms) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(perm)
+            }
+        }
 
-    if (permissions.isNotEmpty()) {
-        statusText.text = "Запрашиваю разрешения..."
-        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
-    } else {
-        // Проверить overlay-разрешение
-        if (!android.provider.Settings.canDrawOverlays(this)) {
-            statusText.text = "Разрешите 'Поверх других окон'\nдля кнопок при звонке"
-            val intent = Intent(
-                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                android.net.Uri.parse("package:$packageName")
-            )
-            startActivityForResult(intent, 101)
+        if (permissions.isNotEmpty()) {
+            statusText.text = "Запрашиваю разрешения..."
+            ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
         } else {
-            statusText.text = "Помощник работает\nВерсия 2026-10-16-v29"
+            statusText.text = "Помощник работает\nВерсия 2026-10-15-v28"
             startVoiceService()
         }
     }
-}
-
-override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-    super.onActivityResult(requestCode, resultCode, data)
-    if (requestCode == 101) {
-        if (android.provider.Settings.canDrawOverlays(this)) {
-            statusText.text = "Помощник работает\nВерсия 2026-10-16-v29"
-            startVoiceService()
-        } else {
-            statusText.text = "Разрешение 'Поверх других окон' НЕ выдано\nКнопки при звонке работать не будут"
-        }
-    }
-}
 
     private fun startVoiceService() {
-        statusText.text = "Помощник работает\nВерсия 2026-10-15-v30"
+        statusText.text = "Помощник работает\nВерсия 2026-10-15-v28"
         val intent = Intent(this, VoiceService::class.java)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -147,7 +123,7 @@ override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) 
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (micGranted) {
-            statusText.text = "Помощник работает\nВерсия 2026-10-15-v30"
+            statusText.text = "Помощник работает\nВерсия 2026-10-15-v28"
             startVoiceService()
         } else {
             statusText.text = "Разрешение на микрофон НЕ выдано"
