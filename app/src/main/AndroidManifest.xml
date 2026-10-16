@@ -1,3 +1,4 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -48,16 +49,6 @@
             android:name="com.accessible.audioplayer.HelpActivity"
             android:exported="false"
             android:label="Помощь" />
-
-        <!-- Экран входящего звонка -->
-        <activity
-            android:name="com.accessible.audioplayer.CallActivity"
-            android:exported="false"
-            android:showOnLockScreen="true"
-            android:turnScreenOn="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
 
         <service
             android:name="com.accessible.audioplayer.VoiceService"
