@@ -14,17 +14,14 @@ class VoiceSettings(context: Context) {
         get() = prefs.getString("confirm_word", "говорите") ?: "говорите"
         set(value) = prefs.edit().putString("confirm_word", value.lowercase().trim()).apply()
 
-    var timeWord: String
-        get() = prefs.getString("time_word", "часы") ?: "часы"
-        set(value) = prefs.edit().putString("time_word", value.lowercase().trim()).apply()
-
-    var dateWord: String
-        get() = prefs.getString("date_word", "дата") ?: "дата"
-        set(value) = prefs.edit().putString("date_word", value.lowercase().trim()).apply()
-
     var shutdownWord: String
         get() = prefs.getString("shutdown_word", "выключись") ?: "выключись"
         set(value) = prefs.edit().putString("shutdown_word", value.lowercase().trim()).apply()
+
+    // Разрешить выключение голосом (по умолчанию — выключено)
+    var shutdownEnabled: Boolean
+        get() = prefs.getBoolean("shutdown_enabled", false)
+        set(value) = prefs.edit().putBoolean("shutdown_enabled", value).apply()
 
     // Режим модели: 0 = стандартная (встроенная), 1 = streaming (на телефоне)
     var modelMode: Int
