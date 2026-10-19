@@ -308,12 +308,12 @@ class VoiceService : Service() {
 
     // ==================== ОБРАБОТКА РАСПОЗНАННОГО ТЕКСТА ====================
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, isActivated=$isActivated, ignore=${System.currentTimeMillis() < tts.ignoreUntil}, ignoreIn=${tts.ignoreUntil - System.currentTimeMillis()}мс)")
 
         if (recordingMode) return
 
         if (System.currentTimeMillis() < tts.ignoreUntil) {
-            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
+            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text' — осталось ${tts.ignoreUntil - System.currentTimeMillis()}мс")
             return
         }
 
@@ -483,13 +483,13 @@ class VoiceService : Service() {
         val activation = settings.activationWord
         val shutdownWord = settings.shutdownWord
 
-        // Команда выключения — ТОЛЬКО если разрешена в настройках
         if (settings.shutdownEnabled && text.contains(shutdownWord)) {
             tts.speakOut("Выключаюсь")
             handler.postDelayed({ stopSelf(); System.exit(0) }, 1500)
             return
         }
 
+        // АКТИВАЦИЯ
         if (!isActivated) {
             if (text.contains(activation)) {
                 if (System.currentTimeMillis() - lastActivationTime < 3000) return
@@ -502,16 +502,21 @@ class VoiceService : Service() {
                 } else {
                     tts.beepListen()
                     handler.postDelayed({ tts.speakOut(settings.confirmWord) }, 200)
+                    // ГЛАВНОЕ: бип через 2.5 секунды после "говорите" — сигнал, что можно говорить
+                    handler.postDelayed({ tts.beepListen() }, 2500L)
                     handler.removeCallbacks(resetActivation)
                     handler.postDelayed(resetActivation, 15000L)
                 }
             }
         } else {
+            // УЖЕ АКТИВИРОВАН — выполняем команду
+            Log.e("MYVOSK", "Команда после активации: '$text'")
             if (text == activation) return
             if (text.length < 3) return
             executeCommand(text)
+            // НЕ сбрасываем isActivated сразу — оставляем ещё на 10 секунд
             handler.removeCallbacks(resetActivation)
-            isActivated = false
+            handler.postDelayed(resetActivation, 10000L)
         }
     }
 
@@ -609,7 +614,6 @@ class VoiceService : Service() {
         recordingFieldName = fieldName
         recordingMode = true
         tts.speakOut("Говорите")
-        // Запускаем запись в отдельном потоке
         handler.postDelayed({
             Thread {
                 val word = vosk.recordSingleWord(5000L)
