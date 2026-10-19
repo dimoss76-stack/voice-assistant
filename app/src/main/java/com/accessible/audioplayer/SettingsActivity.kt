@@ -81,7 +81,6 @@ class SettingsActivity : AppCompatActivity() {
         radioVertical = findViewById(R.id.radioVertical)
         radioHorizontal = findViewById(R.id.radioHorizontal)
 
-        // Заполняем поля
         editActivation?.setText(settings.activationWord)
         editConfirm?.setText(settings.confirmWord)
         editShutdown?.setText(settings.shutdownWord)
@@ -94,12 +93,10 @@ class SettingsActivity : AppCompatActivity() {
             radioVertical.isChecked = true
         }
 
-        // Кнопки записи слов
         findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
         findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor("confirm") }
         findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor("shutdown") }
 
-        // Сохранить
         btnSave.setOnClickListener {
             settings.activationWord = editActivation?.text.toString()
             settings.confirmWord = editConfirm?.text.toString()
@@ -113,15 +110,12 @@ class SettingsActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
-        // Кнопка загрузки модели
         btnToggleModel.setOnClickListener {
             if (modelDownloader.isModelReady()) {
-                // Удалить модель
                 modelDownloader.getModelDir().deleteRecursively()
                 updateModelUI()
                 Toast.makeText(this, "Модель удалена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
             } else {
-                // Скачать модель
                 btnToggleModel.isEnabled = false
                 progressBar.visibility = View.VISIBLE
                 progressBar.progress = 0
