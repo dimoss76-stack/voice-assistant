@@ -7,10 +7,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.ResultReceiver
-import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -25,6 +26,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var modelStatusText: TextView
     private lateinit var btnToggleModel: Button
+    private lateinit var progressBar: ProgressBar
     private lateinit var checkShowCallButtons: CheckBox
     private lateinit var checkShutdownEnabled: CheckBox
     private lateinit var radioLayout: RadioGroup
@@ -72,6 +74,7 @@ class SettingsActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         modelStatusText = findViewById(R.id.modelStatusText)
         btnToggleModel = findViewById(R.id.btnDownloadLarge)
+        progressBar = findViewById(R.id.progressBar)
         checkShowCallButtons = findViewById(R.id.checkShowCallButtons)
         checkShutdownEnabled = findViewById(R.id.checkShutdownEnabled)
         radioLayout = findViewById(R.id.radioLayout)
@@ -120,12 +123,23 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 // Скачать модель
                 btnToggleModel.isEnabled = false
-                btnToggleModel.text = "ЗАГРУЗКА..."
-                modelStatusText.text = "Начинаю загрузку..."
+                progressBar.visibility = View.VISIBLE
+                progressBar.progress = 0
+                modelStatusText.text = "Загрузка: 0%"
+
                 modelDownloader.downloadAndUnzip(
-                    onProgress = { msg -> runOnUiThread { modelStatusText.text = msg } },
+                    onProgress = { msg ->
+                        runOnUiThread { modelStatusText.text = msg }
+                    },
+                    onProgressPercent = { percent ->
+                        runOnUiThread {
+                            progressBar.progress = percent
+                            modelStatusText.text = "Загрузка: $percent%"
+                        }
+                    },
                     onComplete = { success ->
                         runOnUiThread {
+                            progressBar.visibility = View.GONE
                             if (success) {
                                 updateModelUI()
                                 Toast.makeText(this@SettingsActivity, "Модель установлена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
