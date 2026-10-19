@@ -551,15 +551,17 @@ class VoiceService : Service() {
             return
         }
 
+        // ДАТА — раньше времени, потому что "число" и "день" специфичнее
+        if (command.contains("дата") || command.contains("день") || command.contains("число")) {
+            val f = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
+            tts.speakOut("Сегодня ${f.format(calendar.time)}")
+        return
+        }
+
+        // ВРЕМЯ — после даты
         if (command.contains("время") || command.contains("час") || command.contains("сколько")) {
             val f = SimpleDateFormat("HH:mm", Locale("ru"))
             tts.speakOut("Сейчас ${f.format(calendar.time)}")
-            return
-        }
-
-        if (command.contains("день") || command.contains("дата") || command.contains("число")) {
-            val f = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
-            tts.speakOut("Сегодня ${f.format(calendar.time)}")
             return
         }
 
