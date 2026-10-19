@@ -60,7 +60,6 @@ class VoiceService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
 
-    // ==================== ЖИЗНЕННЫЙ ЦИКЛ ====================
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -78,12 +77,20 @@ class VoiceService : Service() {
         vosk = VoskEngine(
             context = this,
             onResultCallback = { text -> handleRecognizedText(text) },
-            onErrorCallback = { e -> Log.e("MYVOSK", "Vosk error: ${e.message}") }
+            onErrorCallback = { e -> 
+                Log.e("MYVOSK", "Vosk error: ${e.message}")
+                handler.post { tts.speakOut("Ошибка распознавания") }
+            }
         )
+        
         vosk.onModelReady = {
-            startListening()
-            tts.speakOut("Помощник готов")
+            handler.post {
+                startListening()
+                tts.speakOut("Помощник готов")
+            }
         }
+        
+        // Запускаем инициализацию Vosk (он сам скачает модель, если надо)
         vosk.init()
 
         showNotification()
@@ -115,7 +122,6 @@ class VoiceService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ==================== СИГНАЛЫ ОТ CallReceiver ====================
     fun onIncomingCall(callerName: String) {
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         readingContacts = false
@@ -132,10 +138,7 @@ class VoiceService : Service() {
     }
 
     fun onCallAnswered() {
-        if (inCallMonitoring) {
-            Log.e("MYVOSK", "Уже в мониторинге — игнорирую повтор OFFHOOK")
-            return
-        }
+        if (inCallMonitoring) return
         Log.e("MYVOSK", "=== РЕЖИМ МОНИТОРИНГА ВКЛЮЧЁН ===")
         readingContacts = false
         awaitingAnswer = false
@@ -150,10 +153,7 @@ class VoiceService : Service() {
     }
 
     fun onCallEnded() {
-        if (!inCallMonitoring) {
-            Log.e("MYVOSK", "Не в мониторинге — игнорирую повтор IDLE")
-            return
-        }
+        if (!inCallMonitoring) return
         Log.e("MYVOSK", "=== РЕЖИМ МОНИТОРИНГА ВЫКЛЮЧЕН ===")
         readingContacts = false
         awaitingAnswer = false
@@ -166,7 +166,6 @@ class VoiceService : Service() {
         startListening()
     }
 
-    // ==================== ЗАПУСК РАСПОЗНАВАНИЯ ====================
     private fun startListening() {
         cancelSilenceTimeout()
         stopListeningActive = false
@@ -196,7 +195,6 @@ class VoiceService : Service() {
         }, 1000L)
     }
 
-    // ==================== ТАЙМАУТЫ ====================
     private fun startSilenceTimeout() {
         cancelSilenceTimeout()
         silenceTimeout = Runnable {
@@ -238,7 +236,6 @@ class VoiceService : Service() {
                inCallMonitoring || isActivated || readingContacts
     }
 
-    // ==================== ЧТЕНИЕ КОНТАКТОВ ====================
     private fun startReadingContacts() {
         val contacts = contactCaller.getAllContactsSorted()
         if (contacts.isEmpty()) {
@@ -246,18 +243,15 @@ class VoiceService : Service() {
             tts.speakOutShort("Контакты не найдены")
             return
         }
-
         readingContacts = true
         contactsToRead = contacts
         contactsReadIndex = 0
-
         val count = contacts.size
         val countWord = when {
             count % 10 == 1 && count % 100 != 11 -> "$count контакт"
             count % 10 in 2..4 && count % 100 !in 12..14 -> "$count контакта"
             else -> "$count контактов"
         }
-
         tts.speakOut("Всего $countWord. Слушайте.")
         val delayAfterIntro = tts.ignoreUntil - System.currentTimeMillis() + 300L
         handler.postDelayed({
@@ -269,7 +263,6 @@ class VoiceService : Service() {
 
     private fun readNextContact() {
         if (!readingContacts) return
-
         if (contactsReadIndex >= contactsToRead.size) {
             readingContacts = false
             stopListeningActive = false
@@ -278,14 +271,10 @@ class VoiceService : Service() {
             handler.postDelayed({ startListening() }, 3000L)
             return
         }
-
         val contact = contactsToRead[contactsReadIndex]
         contactsReadIndex++
-
         Log.e("MYVOSK", "Читаю контакт ${contactsReadIndex}/${contactsToRead.size}: '${contact.name}'")
-
         tts.speakOutShort(contact.name)
-
         val delayAfterTts = (tts.ignoreUntil - System.currentTimeMillis()) + 500L
         handler.postDelayed({
             if (!readingContacts) return@postDelayed
@@ -306,12 +295,10 @@ class VoiceService : Service() {
         handler.postDelayed({ startListening() }, 3000L)
     }
 
-    // ==================== ОБРАБОТКА РАСПОЗНАННОГО ТЕКСТА ====================
     private fun handleRecognizedText(text: String) {
         Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, isActivated=$isActivated, ignore=${System.currentTimeMillis() < tts.ignoreUntil}, ignoreIn=${tts.ignoreUntil - System.currentTimeMillis()}мс)")
 
         if (recordingMode) return
-
         if (System.currentTimeMillis() < tts.ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text' — осталось ${tts.ignoreUntil - System.currentTimeMillis()}мс")
             return
@@ -335,7 +322,6 @@ class VoiceService : Service() {
             val words = text.split(" ").toSet()
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
                                  (words.contains("положить") && words.contains("трубку"))
-
             if (isHangupPhrase) {
                 Log.e("MYVOSK", "✅ Команда завершения звонка: '$text'")
                 tts.beepOk()
@@ -379,7 +365,6 @@ class VoiceService : Service() {
         if (awaitingName) {
             cancelSilenceTimeout()
             Log.e("MYVOSK", "Распознавание имени: '$text'")
-
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
             val commandWords = listOf(
                 "нет", "да", "отмена", "отменить", "позвони", "позвонить",
@@ -394,14 +379,12 @@ class VoiceService : Service() {
                 handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
-
             if (nameOnly.length < 2) {
                 tts.beepError()
                 tts.speakOutShort("Не расслышал. Повторите")
                 handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
-
             awaitingName = false
             tts.beepOk()
             tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
@@ -415,7 +398,6 @@ class VoiceService : Service() {
                         text.contains("взять") || text.contains("поднять") || text == "д"
             val hasNet = text.contains("нет") || text.startsWith("не") ||
                          text.contains("сброс") || text.contains("отклон")
-
             if (hasNet && !hasDa) {
                 contactIndex++
                 if (contactIndex < contactList.size) {
@@ -489,7 +471,6 @@ class VoiceService : Service() {
             return
         }
 
-        // АКТИВАЦИЯ
         if (!isActivated) {
             if (text.contains(activation)) {
                 if (System.currentTimeMillis() - lastActivationTime < 3000) return
@@ -502,25 +483,21 @@ class VoiceService : Service() {
                 } else {
                     tts.beepListen()
                     handler.postDelayed({ tts.speakOut(settings.confirmWord) }, 200)
-                    // ГЛАВНОЕ: бип через 2.5 секунды после "говорите" — сигнал, что можно говорить
                     handler.postDelayed({ tts.beepListen() }, 2500L)
                     handler.removeCallbacks(resetActivation)
                     handler.postDelayed(resetActivation, 15000L)
                 }
             }
         } else {
-            // УЖЕ АКТИВИРОВАН — выполняем команду
             Log.e("MYVOSK", "Команда после активации: '$text'")
             if (text == activation) return
             if (text.length < 3) return
             executeCommand(text)
-            // НЕ сбрасываем isActivated сразу — оставляем ещё на 10 секунд
             handler.removeCallbacks(resetActivation)
             handler.postDelayed(resetActivation, 10000L)
         }
     }
 
-    // ==================== КОМАНДЫ ====================
     private fun executeCommand(command: String) {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
@@ -532,13 +509,10 @@ class VoiceService : Service() {
 
         if (command.contains("позвони") || command.contains("позвонить") ||
             command.contains("набери") || command.contains("набрать")) {
-
             val name = command
                 .replace("позвонить", "").replace("позвони", "")
                 .replace("набрать", "").replace("набери", "").trim()
-
             Log.e("MYVOSK", "Имя в команде: '$name'")
-
             if (name.isEmpty() || name.length < 3 ||
                 name == "день" || name == "дата" || name == "время" ||
                 name == "часы" || name == "час") {
@@ -551,130 +525,5 @@ class VoiceService : Service() {
             return
         }
 
-        // ДАТА — раньше времени, потому что "число" и "день" специфичнее
         if (command.contains("дата") || command.contains("день") || command.contains("число")) {
-            val f = SimpleDateFormat("EEEE, d MMMM", Locale("ru"))
-            tts.speakOut("Сегодня ${f.format(calendar.time)}")
-        return
-        }
-
-        // ВРЕМЯ — после даты
-        if (command.contains("время") || command.contains("час") || command.contains("сколько")) {
-            val f = SimpleDateFormat("HH:mm", Locale("ru"))
-            tts.speakOut("Сейчас ${f.format(calendar.time)}")
-            return
-        }
-
-        tts.beepError()
-        tts.speakOut("Не понял")
-    }
-
-    private fun startContactCall(query: String) {
-        Log.e("MYVOSK", "startContactCall: '$query'")
-        val contacts = contactCaller.findContacts(query)
-
-        if (contacts.isEmpty()) {
-            tts.beepError()
-            tts.speakOut("Контакт не найден. Назовите другое имя")
-            awaitingName = true
-            handler.postDelayed({ startListeningForName() }, 6000L)
-            return
-        }
-        if (contacts.size == 1) {
-            val c = contacts[0]
-            choosingContact = true
-            contactList = contacts
-            contactIndex = 0
-            tts.speakOutShort("${c.name}. Звонить?")
-            handler.postDelayed({ startListening() }, 100L)
-            tts.scheduleConfirmBeep()
-            startChoosingTimeout()
-            return
-        }
-        contactList = contacts
-        contactIndex = 0
-        choosingContact = true
-        val first = contacts[0]
-        val ordinal = ordinalWord(1)
-        tts.speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
-        handler.postDelayed({ startListening() }, 100L)
-        tts.scheduleConfirmBeep()
-        startChoosingTimeout()
-    }
-
-    private fun ordinalWord(n: Int): String {
-        return when (n) {
-            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"
-            4 -> "Четвёртый"; 5 -> "Пятый"; 6 -> "Шестой"
-            7 -> "Седьмой"; 8 -> "Восьмой"; 9 -> "Девятый"
-            10 -> "Десятый"; else -> "$n-й"
-        }
-    }
-
-    // ==================== ЗАПИСЬ СЛОВА ====================
-    private fun startWordRecording(fieldName: String) {
-        recordingFieldName = fieldName
-        recordingMode = true
-        tts.speakOut("Говорите")
-        handler.postDelayed({
-            Thread {
-                val word = vosk.recordSingleWord(5000L)
-                sendWordResult(word)
-            }.start()
-        }, 1500L)
-    }
-
-    private fun sendWordResult(text: String) {
-        handler.post {
-            val bundle = Bundle().apply {
-                putString("FIELD", recordingFieldName)
-                putString("WORD", text)
-            }
-            try { resultReceiver?.send(0, bundle) } catch (_: Exception) {}
-            recordingMode = false
-            recordingFieldName = ""
-        }
-    }
-
-    // ==================== ВСПОМОГАТЕЛЬНОЕ ====================
-    private fun acceptCall() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
-                tm.acceptRingingCall()
-            }
-        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
-    }
-
-    private fun rejectCall() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
-                tm.endCall()
-            }
-        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
-    }
-
-    private fun showNotification() {
-        val channelId = "voice_service_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW
-            )
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
-        }
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Помощник активен")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(1, notification)
-        }
-    }
-}
+            val f = SimpleDateFormat("EEEE, d
