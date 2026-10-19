@@ -30,6 +30,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var radioLayout: RadioGroup
     private lateinit var radioVertical: RadioButton
     private lateinit var radioHorizontal: RadioButton
+    private lateinit var modelDownloader: ModelDownloader
 
     private var editActivation: EditText? = null
     private var editConfirm: EditText? = null
@@ -61,6 +62,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         settings = VoiceSettings(this)
+        modelDownloader = ModelDownloader(this)
 
         editActivation = findViewById(R.id.editActivation)
         editConfirm = findViewById(R.id.editConfirm)
@@ -76,6 +78,7 @@ class SettingsActivity : AppCompatActivity() {
         radioVertical = findViewById(R.id.radioVertical)
         radioHorizontal = findViewById(R.id.radioHorizontal)
 
+        // Заполняем поля
         editActivation?.setText(settings.activationWord)
         editConfirm?.setText(settings.confirmWord)
         editShutdown?.setText(settings.shutdownWord)
@@ -88,10 +91,12 @@ class SettingsActivity : AppCompatActivity() {
             radioVertical.isChecked = true
         }
 
+        // Кнопки записи слов
         findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
         findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor("confirm") }
         findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor("shutdown") }
 
+        // Сохранить
         btnSave.setOnClickListener {
             settings.activationWord = editActivation?.text.toString()
             settings.confirmWord = editConfirm?.text.toString()
@@ -105,40 +110,46 @@ class SettingsActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
+        // Кнопка загрузки модели
         btnToggleModel.setOnClickListener {
-            settings.modelMode = if (settings.modelMode == 0) 1 else 0
-            updateModelUI()
-            Toast.makeText(
-                this,
-                if (settings.modelMode == 1) "Включена streaming-модель. Перезапустите помощника."
-                else "Вернулись к стандартной. Перезапустите помощника.",
-                Toast.LENGTH_LONG
-            ).show()
+            if (modelDownloader.isModelReady()) {
+                // Удалить модель
+                modelDownloader.getModelDir().deleteRecursively()
+                updateModelUI()
+                Toast.makeText(this, "Модель удалена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+            } else {
+                // Скачать модель
+                btnToggleModel.isEnabled = false
+                btnToggleModel.text = "ЗАГРУЗКА..."
+                modelStatusText.text = "Начинаю загрузку..."
+                modelDownloader.downloadAndUnzip(
+                    onProgress = { msg -> runOnUiThread { modelStatusText.text = msg } },
+                    onComplete = { success ->
+                        runOnUiThread {
+                            if (success) {
+                                updateModelUI()
+                                Toast.makeText(this@SettingsActivity, "Модель установлена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+                            } else {
+                                btnToggleModel.isEnabled = true
+                                btnToggleModel.text = "ПОВТОРИТЬ ЗАГРУЗКУ"
+                                modelStatusText.text = "Ошибка загрузки."
+                            }
+                        }
+                    }
+                )
+            }
         }
 
         updateModelUI()
     }
 
     private fun updateModelUI() {
-        val streamingDir = java.io.File(
-            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-            "VoiceAssistant/vosk-model-small-streaming-ru"
-        )
-        val streamingReady = streamingDir.exists() && streamingDir.listFiles()?.isNotEmpty() == true
-
-        if (!streamingReady) {
-            modelStatusText.text = "Модель: стандартная (45 МБ)\nStreaming-модель не найдена.\nСкопируйте папку vosk-model-small-streaming-ru в Download/VoiceAssistant/"
-            btnToggleModel.text = "STREAMING-МОДЕЛЬ НЕ НАЙДЕНА"
-            btnToggleModel.isEnabled = false
-            return
-        }
-
-        if (settings.modelMode == 1) {
-            modelStatusText.text = "Модель: streaming (569 МБ, используется)"
-            btnToggleModel.text = "ВЕРНУТЬСЯ К СТАНДАРТНОЙ"
+        if (modelDownloader.isModelReady()) {
+            modelStatusText.text = "Модель: улучшенная (загружена)"
+            btnToggleModel.text = "УДАЛИТЬ МОДЕЛЬ"
         } else {
-            modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (569 МБ)"
-            btnToggleModel.text = "ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
+            modelStatusText.text = "Модель: стандартная (встроенная)\nУлучшенная модель не загружена."
+            btnToggleModel.text = "СКАЧАТЬ УЛУЧШЕННУЮ МОДЕЛЬ"
         }
         btnToggleModel.isEnabled = true
     }
