@@ -25,7 +25,7 @@ class VoskEngine(
         Log.e("MYVOSK", "Инициализация Vosk...")
         
         if (modelDownloader.isModelReady()) {
-            Log.e("MYVOSK", "Найдена скачанная модель")
+            Log.e("MYVOSK", "Найдена модель в Download")
             loadModelFromDir(modelDownloader.getModelDir())
         } else {
             Log.e("MYVOSK", "Модель не найдена, начинаю загрузку...")
