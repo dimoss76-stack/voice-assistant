@@ -14,7 +14,7 @@ class ModelDownloader(private val context: Context) {
 
     companion object {
         // ВАЖНО: Ссылка должна быть прямой (заканчиваться на ?dl=1 для Dropbox)
-        private const val MODEL_URL = "https://www.dropbox.com/scl/fi/97tbjzsp8fh0djw4ufvhz/model-ru.zip?rlkey=x67yq9567mme348b2y63hd3qa&st=8c5hm8sa&dl=1"
+        private const val MODEL_URL = "https://www.dropbox.com/scl/fi/y40r2n0pru4m8gxbcw9ya/model-ru.zip?rlkey=byri72u8rzypi3hw6i6q6vxsu&st=4l89uoje&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
     }
 
