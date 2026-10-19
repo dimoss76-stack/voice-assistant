@@ -6,7 +6,7 @@ import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
-import org.vosk.android.StorageService
+import java.io.File
 import java.io.IOException
 
 class VoskEngine(
@@ -17,51 +17,59 @@ class VoskEngine(
 
     private var model: Model? = null
     private var speechService: SpeechService? = null
+    private val modelDownloader = ModelDownloader(context)
 
     var onModelReady: (() -> Unit)? = null
 
     // ========== ИНИЦИАЛИЗАЦИЯ ==========
     fun init() {
-        Log.e("MYVOSK", "Загружаю модель")
-        try {
-            StorageService.unpack(context, "model-ru", "model",
-                { m: Model ->
-                    model = m
-                    Log.e("MYVOSK", "Модель загружена")
-                    onModelReady?.invoke()
-                },
-                { exception: IOException ->
-                    Log.e("MYVOSK", "Ошибка модели: ${exception.message}", exception)
-                    onErrorCallback(exception)
+        Log.e("MYVOSK", "Инициализация Vosk...")
+        
+        if (modelDownloader.isModelReady()) {
+            Log.e("MYVOSK", "Найдена скачанная модель")
+            loadModelFromDir(modelDownloader.getModelDir())
+        } else {
+            Log.e("MYVOSK", "Модель не найдена, начинаю загрузку...")
+            modelDownloader.downloadAndUnzip(
+                onProgress = { msg -> Log.e("MYVOSK", msg) },
+                onComplete = { success ->
+                    if (success) {
+                        loadModelFromDir(modelDownloader.getModelDir())
+                    } else {
+                        onErrorCallback(Exception("Не удалось скачать модель"))
+                    }
                 }
             )
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Исключение: ${e.message}", e)
+        }
+    }
+
+    private fun loadModelFromDir(modelDir: File) {
+        try {
+            model = Model(modelDir.absolutePath)
+            Log.e("MYVOSK", "Модель успешно загружена из ${modelDir.absolutePath}")
+            onModelReady?.invoke()
+        } catch (e: IOException) {
+            Log.e("MYVOSK", "Ошибка загрузки модели: ${e.message}", e)
             onErrorCallback(e)
         }
     }
 
-    // ========== ЗАПИСЬ ОДНОГО СЛОВА (для настроек) ==========
-    // Возвращает распознанное слово или пустую строку
+    // ========== ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ ==========
+    
     fun recordSingleWord(durationMs: Long = 5000L): String {
         val m = model ?: return ""
-
         var audioRecord: android.media.AudioRecord? = null
         var recognizer: Recognizer? = null
-
         try {
             val sampleRate = 16000
             val bufferSize = android.media.AudioRecord.getMinBufferSize(
-                sampleRate,
-                android.media.AudioFormat.CHANNEL_IN_MONO,
+                sampleRate, android.media.AudioFormat.CHANNEL_IN_MONO,
                 android.media.AudioFormat.ENCODING_PCM_16BIT
             )
             audioRecord = android.media.AudioRecord(
-                android.media.MediaRecorder.AudioSource.MIC,
-                sampleRate,
+                android.media.MediaRecorder.AudioSource.MIC, sampleRate,
                 android.media.AudioFormat.CHANNEL_IN_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize * 4
+                android.media.AudioFormat.ENCODING_PCM_16BIT, bufferSize * 4
             )
             if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
                 Log.e("MYVOSK", "AudioRecord не инициализирован")
@@ -69,14 +77,12 @@ class VoskEngine(
             }
             recognizer = Recognizer(m, 16000.0f)
             audioRecord.startRecording()
-
             val buffer = ShortArray(bufferSize)
             val startTime = System.currentTimeMillis()
             while (System.currentTimeMillis() - startTime < durationMs) {
                 val read = audioRecord.read(buffer, 0, buffer.size)
                 if (read > 0) recognizer.acceptWaveForm(buffer, read)
             }
-
             val json = recognizer.finalResult
             val text = extractText(json)
             Log.e("MYVOSK", "Записано слово: '$text'")
@@ -103,14 +109,11 @@ class VoskEngine(
         } catch (e: Exception) { "" }
     }
 
-    // ========== ОСНОВНАЯ ГРАММАТИКА ==========
     fun startListening(activation: String, confirm: String, shutdown: String) {
         try {
             model?.let {
                 val grammar = """[
-                    "$activation",
-                    "$confirm",
-                    "$shutdown",
+                    "$activation", "$confirm", "$shutdown",
                     "время", "часы", "час", "сколько",
                     "дата", "день", "число",
                     "да", "нет", "возьми", "сбрось", "отклони",
@@ -119,7 +122,6 @@ class VoskEngine(
                     "отмена", "отменить",
                     "контакты", "список", "покажи"
                 ]"""
-
                 val rec = Recognizer(it, 16000.0f, grammar)
                 speechService?.stop()
                 speechService?.shutdown()
@@ -132,22 +134,17 @@ class VoskEngine(
         }
     }
 
-    // ========== ГРАММАТИКА ИМЁН ==========
     fun prepareListeningForNames(names: List<String>) {
         try {
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
-
             model?.let { m ->
                 val namesJson = if (names.isEmpty()) "" else names.joinToString(",") { "\"$it\"" }
-
                 val grammar = if (namesJson.isEmpty()) null else """[
                     $namesJson,
-                    "отмена", "отменить", "стоп", "хватит",
-                    "назад"
+                    "отмена", "отменить", "стоп", "хватит", "назад"
                 ]"""
-
                 val rec = if (grammar != null) Recognizer(m, 16000.0f, grammar) else Recognizer(m, 16000.0f)
                 speechService = SpeechService(rec, 16000.0f)
                 Log.e("MYVOSK", "Распознавание имён готово (${names.size} имён)")
@@ -165,18 +162,14 @@ class VoskEngine(
         }
     }
 
-    // ========== ГРАММАТИКА МОНИТОРИНГА ==========
     fun startListeningForHangup() {
         try {
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
-
             model?.let { m ->
                 val grammar = """[
-                    "завершить этот звонок",
-                    "завершить звонок",
-                    "положить трубку"
+                    "завершить этот звонок", "завершить звонок", "положить трубку"
                 ]"""
                 val rec = Recognizer(m, 16000.0f, grammar)
                 speechService = SpeechService(rec, 16000.0f)
@@ -188,18 +181,13 @@ class VoskEngine(
         }
     }
 
-    // ========== ГРАММАТИКА ЧТЕНИЯ КОНТАКТОВ ==========
     fun startListeningForStop() {
         try {
             speechService?.stop()
             speechService?.shutdown()
             speechService = null
-
             model?.let { m ->
-                val grammar = """[
-                    "стоп", "отмена", "отменить", "хватит",
-                    "остановись", "прекрати"
-                ]"""
+                val grammar = """["стоп", "отмена", "отменить", "хватит", "остановись", "прекрати"]"""
                 val rec = Recognizer(m, 16000.0f, grammar)
                 speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
@@ -210,7 +198,6 @@ class VoskEngine(
         }
     }
 
-    // ========== ОСТАНОВКА ==========
     fun stop() {
         try {
             speechService?.stop()
@@ -224,7 +211,6 @@ class VoskEngine(
         model = null
     }
 
-    // ========== КОЛБЭКИ VOSK ==========
     override fun onResult(hypothesis: String?) {
         if (hypothesis == null) return
         val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
