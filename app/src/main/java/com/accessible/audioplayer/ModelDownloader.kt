@@ -13,7 +13,7 @@ import java.util.zip.ZipInputStream
 class ModelDownloader(private val context: Context) {
 
     companion object {
-        // ВАЖНО: Ссылка должна быть прямой (заканчиваться на ?dl=1 для Dropbox)
+        // ВАЖНО: Убедитесь, что ссылка заканчивается на ?dl=1 (для Dropbox)
         private const val MODEL_URL = "https://www.dropbox.com/scl/fi/y40r2n0pru4m8gxbcw9ya/model-ru.zip?rlkey=byri72u8rzypi3hw6i6q6vxsu&st=4l89uoje&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
     }
@@ -32,56 +32,74 @@ class ModelDownloader(private val context: Context) {
         Thread {
             try {
                 onProgress("Начинаю загрузку модели...")
-                Log.e("MYVOSK", "Начинаю загрузку модели...")
+                Log.e("MYVOSK", "1. Создаю HTTP-клиент...")
 
                 val client = OkHttpClient.Builder()
-                    .connectTimeout(60, TimeUnit.SECONDS)
-                    .readTimeout(300, TimeUnit.SECONDS)
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
                     .followRedirects(true) // Важно для Dropbox
                     .followSslRedirects(true)
                     .build()
 
                 val request = Request.Builder().url(MODEL_URL).build()
+                Log.e("MYVOSK", "2. Выполняю запрос к $MODEL_URL")
+                
                 val response = client.newCall(request).execute()
+                Log.e("MYVOSK", "3. Получен ответ. Код: ${response.code}")
 
                 if (!response.isSuccessful) {
-                    Log.e("MYVOSK", "Ошибка загрузки: ${response.code}")
+                    Log.e("MYVOSK", "ОШИБКА: Сервер вернул код ${response.code}")
                     onComplete(false)
                     return@Thread
                 }
 
                 val body = response.body
                 if (body == null) {
+                    Log.e("MYVOSK", "ОШИБКА: Тело ответа пустое")
                     onComplete(false)
                     return@Thread
                 }
 
-                // Сохраняем во временный файл
+                val contentLength = body.contentLength()
+                Log.e("MYVOSK", "4. Размер файла на сервере: $contentLength байт")
+
                 val tempZip = File(context.cacheDir, ZIP_NAME)
+                Log.e("MYVOSK", "5. Начинаю скачивание в ${tempZip.absolutePath}...")
+                
                 body.byteStream().use { input ->
                     FileOutputStream(tempZip).use { output ->
                         input.copyTo(output)
                     }
                 }
-                onProgress("Архив скачан, начинаю распаковку...")
-                Log.e("MYVOSK", "Архив скачан, начинаю распаковку...")
+                Log.e("MYVOSK", "6. Файл скачан. Реальный размер: ${tempZip.length()} байт")
 
-                // Распаковка
+                // ПРОВЕРКА: Если файл слишком маленький, значит скачалась HTML-страница, а не ZIP
+                if (tempZip.length() < 1024 * 1024) { // Меньше 1 МБ — это точно не наша модель
+                    Log.e("MYVOSK", "ОШИБКА: Скачанный файл слишком мал (${tempZip.length()} байт). Вероятно, это HTML-страница Dropbox.")
+                    onProgress("Ошибка: скачался не архив. Проверьте прямую ссылку.")
+                    onComplete(false)
+                    tempZip.delete()
+                    return@Thread
+                }
+
+                onProgress("Архив скачан, начинаю распаковку...")
+                
                 val targetDir = getModelDir()
                 if (targetDir.exists()) {
                     targetDir.deleteRecursively()
                 }
                 targetDir.mkdirs()
 
+                Log.e("MYVOSK", "7. Начинаю распаковку архива...")
                 unzip(tempZip, targetDir)
                 tempZip.delete()
+                Log.e("MYVOSK", "8. Распаковка завершена успешно!")
 
                 onProgress("Модель успешно установлена.")
-                Log.e("MYVOSK", "Модель успешно установлена в ${targetDir.absolutePath}")
                 onComplete(true)
 
             } catch (e: Exception) {
-                Log.e("MYVOSK", "Ошибка при загрузке/распаковке: ${e.message}", e)
+                Log.e("MYVOSK", "КРИТИЧЕСКАЯ ОШИБКА при загрузке/распаковке: ${e.message}", e)
                 onProgress("Ошибка загрузки модели.")
                 onComplete(false)
             }
@@ -96,7 +114,7 @@ class ModelDownloader(private val context: Context) {
                 val fileName = entry.name
                 val outFile = File(targetDir, fileName)
                 if (!outFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
-                    throw SecurityException("Некорректный zip-архив")
+                    throw SecurityException("Некорректный zip-архив (Zip Slip)")
                 }
                 if (entry.isDirectory) {
                     outFile.mkdirs()
