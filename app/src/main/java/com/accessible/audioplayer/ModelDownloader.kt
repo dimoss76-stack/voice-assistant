@@ -1,6 +1,7 @@
 package com.accessible.audioplayer
 
 import android.content.Context
+import android.os.Environment
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,13 +14,16 @@ import java.util.zip.ZipInputStream
 class ModelDownloader(private val context: Context) {
 
     companion object {
-        // УБЕДИТЕСЬ, ЧТО ССЫЛКА ЗАКАНЧИВАЕТСЯ НА &dl=1
         private const val MODEL_URL = "https://www.dropbox.com/scl/fi/6iif93kkyr5q17uwi4vjv/model-ru.zip?rlkey=in96kpf4hyylzfbfnjedt9v7o&st=jjoou9vo&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
+        private const val FOLDER_NAME = "vosk-model-small-streaming-ru"
     }
 
+    // ПУТЬ: Download/VoiceAssistant/vosk-model-small-streaming-ru
     fun getModelDir(): File {
-        return File(context.filesDir, "model-ru")
+        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val voiceAssistantDir = File(publicDownloads, "VoiceAssistant")
+        return File(voiceAssistantDir, FOLDER_NAME)
     }
 
     fun isModelReady(): Boolean {
@@ -45,10 +49,7 @@ class ModelDownloader(private val context: Context) {
                     .build()
 
                 val request = Request.Builder().url(MODEL_URL).build()
-                Log.e("MYVOSK", "2. Запрос к $MODEL_URL")
-
                 val response = client.newCall(request).execute()
-                Log.e("MYVOSK", "3. Ответ: ${response.code}")
 
                 if (!response.isSuccessful) {
                     onComplete(false)
@@ -62,8 +63,7 @@ class ModelDownloader(private val context: Context) {
 
                 val totalBytes = body.contentLength()
                 val tempZip = File(context.cacheDir, ZIP_NAME)
-                Log.e("MYVOSK", "4. Скачиваю... Размер: $totalBytes")
-
+                
                 body.byteStream().use { input ->
                     FileOutputStream(tempZip).use { output ->
                         val buffer = ByteArray(8192)
@@ -79,42 +79,28 @@ class ModelDownloader(private val context: Context) {
                         }
                     }
                 }
-                Log.e("MYVOSK", "5. Скачано: ${tempZip.length()} байт")
 
                 if (tempZip.length() < 10 * 1024 * 1024) {
-                    Log.e("MYVOSK", "ОШИБКА: Файл слишком мал. Это не ZIP!")
-                    onProgress("Ошибка: файл поврежден.")
                     onComplete(false)
                     tempZip.delete()
                     return@Thread
                 }
 
-                onProgress("Распаковка архива...")
+                // Распаковка в Download
                 val targetDir = getModelDir()
                 if (targetDir.exists()) targetDir.deleteRecursively()
                 targetDir.mkdirs()
 
-                Log.e("MYVOSK", "6. Распаковка...")
+                onProgress("Распаковка архива...")
                 unzip(tempZip, targetDir)
                 tempZip.delete()
-
-                // Проверка и поднятие файлов, если есть лишняя папка
-                val files = targetDir.listFiles()
-                if (files != null && files.size == 1 && files[0].isDirectory) {
-                    Log.e("MYVOSK", "Найдена вложенная папка: ${files[0].name}. Поднимаю файлы...")
-                    val nestedDir = files[0]
-                    nestedDir.listFiles()?.forEach { it.renameTo(File(targetDir, it.name)) }
-                    nestedDir.delete()
-                }
-
+                
+                // Проверка, что папка am на месте
                 if (!File(targetDir, "am").exists()) {
-                    Log.e("MYVOSK", "ОШИБКА: После распаковки нет папки 'am'!")
-                    onProgress("Ошибка: модель повреждена.")
                     onComplete(false)
                     return@Thread
                 }
 
-                Log.e("MYVOSK", "7. Распаковка успешна, модель в ${targetDir.absolutePath}")
                 onProgress("Модель успешно установлена.")
                 onComplete(true)
 
