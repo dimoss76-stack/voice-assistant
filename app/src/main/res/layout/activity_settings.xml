@@ -185,6 +185,16 @@
             android:text="Модель: стандартная (45 МБ)"
             android:textSize="16sp" />
 
+        <!-- ПРОГРЕСС-БАР -->
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:max="100"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/btnDownloadLarge"
             android:layout_width="match_parent"
