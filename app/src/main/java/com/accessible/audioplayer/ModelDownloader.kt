@@ -14,22 +14,21 @@ import java.util.zip.ZipInputStream
 class ModelDownloader(private val context: Context) {
 
     companion object {
+        // Ссылка на архив с моделью (Dropbox, Яндекс.Диск и т.д.)
         private const val MODEL_URL = "https://www.dropbox.com/scl/fi/6iif93kkyr5q17uwi4vjv/model-ru.zip?rlkey=in96kpf4hyylzfbfnjedt9v7o&st=jjoou9vo&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
-        private const val FOLDER_NAME = "vosk-model-small-streaming-ru"
+        private const val FOLDER_NAME = "model-large"
     }
 
-    // ПУТЬ: Download/VoiceAssistant/vosk-model-small-streaming-ru
     fun getModelDir(): File {
         val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val voiceAssistantDir = File(publicDownloads, "VoiceAssistant")
-        return File(voiceAssistantDir, FOLDER_NAME)
+        val root = File(publicDownloads, "VoiceAssistant")
+        return File(root, FOLDER_NAME)
     }
 
     fun isModelReady(): Boolean {
         val dir = getModelDir()
-        if (!dir.exists() || dir.listFiles()?.isEmpty() != false) return false
-        return File(dir, "am").exists()
+        return dir.exists() && dir.listFiles()?.isNotEmpty() == true
     }
 
     fun downloadAndUnzip(
@@ -63,7 +62,7 @@ class ModelDownloader(private val context: Context) {
 
                 val totalBytes = body.contentLength()
                 val tempZip = File(context.cacheDir, ZIP_NAME)
-                
+
                 body.byteStream().use { input ->
                     FileOutputStream(tempZip).use { output ->
                         val buffer = ByteArray(8192)
@@ -81,32 +80,25 @@ class ModelDownloader(private val context: Context) {
                 }
 
                 if (tempZip.length() < 10 * 1024 * 1024) {
+                    Log.e("MYVOSK", "ОШИБКА: Файл слишком мал.")
                     onComplete(false)
                     tempZip.delete()
                     return@Thread
                 }
 
-                // Распаковка в Download
+                onProgress("Распаковка архива...")
                 val targetDir = getModelDir()
                 if (targetDir.exists()) targetDir.deleteRecursively()
                 targetDir.mkdirs()
 
-                onProgress("Распаковка архива...")
                 unzip(tempZip, targetDir)
                 tempZip.delete()
-                
-                // Проверка, что папка am на месте
-                if (!File(targetDir, "am").exists()) {
-                    onComplete(false)
-                    return@Thread
-                }
 
-                onProgress("Модель успешно установлена.")
+                Log.e("MYVOSK", "Модель установлена в ${targetDir.absolutePath}")
                 onComplete(true)
 
             } catch (e: Exception) {
                 Log.e("MYVOSK", "КРИТИЧЕСКАЯ ОШИБКА: ${e.message}", e)
-                onProgress("Ошибка загрузки модели.")
                 onComplete(false)
             }
         }.start()
