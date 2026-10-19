@@ -13,19 +13,19 @@ import java.util.zip.ZipInputStream
 class ModelDownloader(private val context: Context) {
 
     companion object {
-        // ВАЖНО: Убедитесь, что ссылка заканчивается на ?dl=1 (для Dropbox)
+        // УБЕДИТЕСЬ, ЧТО ССЫЛКА ЗАКАНЧИВАЕТСЯ НА &dl=1
         private const val MODEL_URL = "https://www.dropbox.com/scl/fi/6iif93kkyr5q17uwi4vjv/model-ru.zip?rlkey=in96kpf4hyylzfbfnjedt9v7o&st=jjoou9vo&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
     }
 
-    // Модель будет храниться во внутренней памяти приложения
     fun getModelDir(): File {
         return File(context.filesDir, "model-ru")
     }
 
     fun isModelReady(): Boolean {
         val dir = getModelDir()
-        return dir.exists() && dir.listFiles()?.isNotEmpty() == true
+        if (!dir.exists() || dir.listFiles()?.isEmpty() != false) return false
+        return File(dir, "am").exists()
     }
 
     fun downloadAndUnzip(onProgress: (String) -> Unit, onComplete: (Boolean) -> Unit) {
@@ -36,71 +36,77 @@ class ModelDownloader(private val context: Context) {
 
                 val client = OkHttpClient.Builder()
                     .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .followRedirects(true) // Важно для Dropbox
-                    .followSslRedirects(true)
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .followRedirects(true)
                     .build()
 
                 val request = Request.Builder().url(MODEL_URL).build()
-                Log.e("MYVOSK", "2. Выполняю запрос к $MODEL_URL")
+                Log.e("MYVOSK", "2. Запрос к $MODEL_URL")
                 
                 val response = client.newCall(request).execute()
-                Log.e("MYVOSK", "3. Получен ответ. Код: ${response.code}")
+                Log.e("MYVOSK", "3. Ответ: ${response.code}")
 
                 if (!response.isSuccessful) {
-                    Log.e("MYVOSK", "ОШИБКА: Сервер вернул код ${response.code}")
                     onComplete(false)
                     return@Thread
                 }
 
-                val body = response.body
-                if (body == null) {
-                    Log.e("MYVOSK", "ОШИБКА: Тело ответа пустое")
+                val body = response.body ?: run {
                     onComplete(false)
                     return@Thread
                 }
-
-                val contentLength = body.contentLength()
-                Log.e("MYVOSK", "4. Размер файла на сервере: $contentLength байт")
 
                 val tempZip = File(context.cacheDir, ZIP_NAME)
-                Log.e("MYVOSK", "5. Начинаю скачивание в ${tempZip.absolutePath}...")
+                Log.e("MYVOSK", "4. Скачиваю...")
                 
                 body.byteStream().use { input ->
                     FileOutputStream(tempZip).use { output ->
                         input.copyTo(output)
                     }
                 }
-                Log.e("MYVOSK", "6. Файл скачан. Реальный размер: ${tempZip.length()} байт")
+                Log.e("MYVOSK", "5. Скачано: ${tempZip.length()} байт")
 
-                // ПРОВЕРКА: Если файл слишком маленький, значит скачалась HTML-страница, а не ZIP
-                if (tempZip.length() < 1024 * 1024) { // Меньше 1 МБ — это точно не наша модель
-                    Log.e("MYVOSK", "ОШИБКА: Скачанный файл слишком мал (${tempZip.length()} байт). Вероятно, это HTML-страница Dropbox.")
-                    onProgress("Ошибка: скачался не архив. Проверьте прямую ссылку.")
+                if (tempZip.length() < 10 * 1024 * 1024) {
+                    Log.e("MYVOSK", "ОШИБКА: Файл слишком мал. Это не ZIP!")
                     onComplete(false)
                     tempZip.delete()
                     return@Thread
                 }
 
-                onProgress("Архив скачан, начинаю распаковку...")
-                
                 val targetDir = getModelDir()
-                if (targetDir.exists()) {
-                    targetDir.deleteRecursively()
-                }
+                if (targetDir.exists()) targetDir.deleteRecursively()
                 targetDir.mkdirs()
 
-                Log.e("MYVOSK", "7. Начинаю распаковку архива...")
+                Log.e("MYVOSK", "6. Распаковка...")
                 unzip(tempZip, targetDir)
                 tempZip.delete()
-                Log.e("MYVOSK", "8. Распаковка завершена успешно!")
+                
+                // ИСПРАВЛЕНИЕ: Если есть лишняя вложенная папка, поднимаем файлы наверх
+                val files = targetDir.listFiles()
+                if (files != null && files.size == 1 && files[0].isDirectory) {
+                    Log.e("MYVOSK", "Найдена вложенная папка: ${files[0].name}. Поднимаю файлы...")
+                    val nestedDir = files[0]
+                    val innerFiles = nestedDir.listFiles()
+                    if (innerFiles != null) {
+                        for (file in innerFiles) {
+                            file.renameTo(File(targetDir, file.name))
+                        }
+                        nestedDir.delete()
+                    }
+                }
 
-                onProgress("Модель успешно установлена.")
+                // Проверка, что папка 'am' на месте
+                if (!File(targetDir, "am").exists()) {
+                    Log.e("MYVOSK", "ОШИБКА: После распаковки нет папки 'am'! Архив битый.")
+                    onComplete(false)
+                    return@Thread
+                }
+
+                Log.e("MYVOSK", "7. Распаковка успешна, модель в ${targetDir.absolutePath}")
                 onComplete(true)
 
             } catch (e: Exception) {
-                Log.e("MYVOSK", "КРИТИЧЕСКАЯ ОШИБКА при загрузке/распаковке: ${e.message}", e)
-                onProgress("Ошибка загрузки модели.")
+                Log.e("MYVOSK", "КРИТИЧЕСКАЯ ОШИБКА: ${e.message}", e)
                 onComplete(false)
             }
         }.start()
@@ -111,10 +117,9 @@ class ModelDownloader(private val context: Context) {
         ZipInputStream(BufferedInputStream(zipFile.inputStream())).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
-                val fileName = entry.name
-                val outFile = File(targetDir, fileName)
+                val outFile = File(targetDir, entry.name)
                 if (!outFile.canonicalPath.startsWith(targetDir.canonicalPath)) {
-                    throw SecurityException("Некорректный zip-архив (Zip Slip)")
+                    throw SecurityException("Zip Slip")
                 }
                 if (entry.isDirectory) {
                     outFile.mkdirs()
