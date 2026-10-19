@@ -28,7 +28,11 @@ class ModelDownloader(private val context: Context) {
         return File(dir, "am").exists()
     }
 
-    fun downloadAndUnzip(onProgress: (String) -> Unit, onComplete: (Boolean) -> Unit) {
+    fun downloadAndUnzip(
+        onProgress: (String) -> Unit,
+        onProgressPercent: (Int) -> Unit,
+        onComplete: (Boolean) -> Unit
+    ) {
         Thread {
             try {
                 onProgress("Начинаю загрузку модели...")
@@ -42,7 +46,7 @@ class ModelDownloader(private val context: Context) {
 
                 val request = Request.Builder().url(MODEL_URL).build()
                 Log.e("MYVOSK", "2. Запрос к $MODEL_URL")
-                
+
                 val response = client.newCall(request).execute()
                 Log.e("MYVOSK", "3. Ответ: ${response.code}")
 
@@ -56,23 +60,36 @@ class ModelDownloader(private val context: Context) {
                     return@Thread
                 }
 
+                val totalBytes = body.contentLength()
                 val tempZip = File(context.cacheDir, ZIP_NAME)
-                Log.e("MYVOSK", "4. Скачиваю...")
-                
+                Log.e("MYVOSK", "4. Скачиваю... Размер: $totalBytes")
+
                 body.byteStream().use { input ->
                     FileOutputStream(tempZip).use { output ->
-                        input.copyTo(output)
+                        val buffer = ByteArray(8192)
+                        var totalRead = 0L
+                        var bytes: Int
+                        while (input.read(buffer).also { bytes = it } != -1) {
+                            output.write(buffer, 0, bytes)
+                            totalRead += bytes
+                            if (totalBytes > 0) {
+                                val percent = ((totalRead * 100) / totalBytes).toInt()
+                                onProgressPercent(percent)
+                            }
+                        }
                     }
                 }
                 Log.e("MYVOSK", "5. Скачано: ${tempZip.length()} байт")
 
                 if (tempZip.length() < 10 * 1024 * 1024) {
                     Log.e("MYVOSK", "ОШИБКА: Файл слишком мал. Это не ZIP!")
+                    onProgress("Ошибка: файл поврежден.")
                     onComplete(false)
                     tempZip.delete()
                     return@Thread
                 }
 
+                onProgress("Распаковка архива...")
                 val targetDir = getModelDir()
                 if (targetDir.exists()) targetDir.deleteRecursively()
                 targetDir.mkdirs()
@@ -80,33 +97,30 @@ class ModelDownloader(private val context: Context) {
                 Log.e("MYVOSK", "6. Распаковка...")
                 unzip(tempZip, targetDir)
                 tempZip.delete()
-                
-                // ИСПРАВЛЕНИЕ: Если есть лишняя вложенная папка, поднимаем файлы наверх
+
+                // Проверка и поднятие файлов, если есть лишняя папка
                 val files = targetDir.listFiles()
                 if (files != null && files.size == 1 && files[0].isDirectory) {
                     Log.e("MYVOSK", "Найдена вложенная папка: ${files[0].name}. Поднимаю файлы...")
                     val nestedDir = files[0]
-                    val innerFiles = nestedDir.listFiles()
-                    if (innerFiles != null) {
-                        for (file in innerFiles) {
-                            file.renameTo(File(targetDir, file.name))
-                        }
-                        nestedDir.delete()
-                    }
+                    nestedDir.listFiles()?.forEach { it.renameTo(File(targetDir, it.name)) }
+                    nestedDir.delete()
                 }
 
-                // Проверка, что папка 'am' на месте
                 if (!File(targetDir, "am").exists()) {
-                    Log.e("MYVOSK", "ОШИБКА: После распаковки нет папки 'am'! Архив битый.")
+                    Log.e("MYVOSK", "ОШИБКА: После распаковки нет папки 'am'!")
+                    onProgress("Ошибка: модель повреждена.")
                     onComplete(false)
                     return@Thread
                 }
 
                 Log.e("MYVOSK", "7. Распаковка успешна, модель в ${targetDir.absolutePath}")
+                onProgress("Модель успешно установлена.")
                 onComplete(true)
 
             } catch (e: Exception) {
                 Log.e("MYVOSK", "КРИТИЧЕСКАЯ ОШИБКА: ${e.message}", e)
+                onProgress("Ошибка загрузки модели.")
                 onComplete(false)
             }
         }.start()
