@@ -23,7 +23,7 @@ class VoskEngine(
 
     fun init() {
         Log.e("MYVOSK", "Инициализация Vosk...")
-        
+
         if (modelDownloader.isModelReady()) {
             Log.e("MYVOSK", "Найдена модель в Download")
             loadModelFromDir(modelDownloader.getModelDir())
