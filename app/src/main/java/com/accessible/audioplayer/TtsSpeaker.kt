@@ -46,6 +46,8 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     // ========== TTS ==========
+    // Для коротких фраз (до 20 символов) — 2.5 сек + 0.5 сек эхо
+    // Для длинных — пропорционально + 1 сек эхо
     fun speakOutShort(text: String) {
         Log.e("MYVOSK", "speakOutShort: $text")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -58,7 +60,7 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         }
         val duration = (text.length * 100L + 1000L).coerceAtLeast(2000L)
         val ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 800L
+        ignoreUntil = ttsSpeakingUntil + 500L
     }
 
     fun speakOut(text: String) {
@@ -66,7 +68,8 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         val duration = (text.length * 80L + 800L).coerceAtLeast(2000L)
         val ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 2000L
+        // Уменьшили с 2000L до 800L — чтобы быстрее начать слушать
+        ignoreUntil = ttsSpeakingUntil + 800L
     }
 
     // ========== БИПЫ ==========
