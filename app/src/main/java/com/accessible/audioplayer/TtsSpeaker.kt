@@ -18,7 +18,6 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
     private var confirmBeepRunnable: Runnable? = null
     private val handler = Handler(Looper.getMainLooper())
 
-    // Время, до которого TTS/бип ещё звучит — микрофон игнорирует
     var ignoreUntil: Long = 0L
         private set
 
@@ -26,7 +25,6 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         ignoreUntil = value
     }
 
-    // Инициализация TTS и генератора бипов
     fun init() {
         try {
             toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 80)
@@ -46,8 +44,7 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     // ========== TTS ==========
-    // Для коротких фраз (до 20 символов) — 2.5 сек + 0.5 сек эхо
-    // Для длинных — пропорционально + 1 сек эхо
+    // Короткие фразы: 2 сек + 0.5 сек эхо
     fun speakOutShort(text: String) {
         Log.e("MYVOSK", "speakOutShort: $text")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -63,13 +60,14 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         ignoreUntil = ttsSpeakingUntil + 500L
     }
 
+    // Длинные фразы: пропорционально + 2 сек эхо (эхо TTS может длиться долго)
     fun speakOut(text: String) {
         Log.e("MYVOSK", "speakOut: $text")
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         val duration = (text.length * 80L + 800L).coerceAtLeast(2000L)
         val ttsSpeakingUntil = System.currentTimeMillis() + duration
-        // Уменьшили с 2000L до 800L — чтобы быстрее начать слушать
-        ignoreUntil = ttsSpeakingUntil + 800L
+        // +2000 — чтобы точно заблокировать эхо длинных фраз
+        ignoreUntil = ttsSpeakingUntil + 2000L
     }
 
     // ========== БИПЫ ==========
