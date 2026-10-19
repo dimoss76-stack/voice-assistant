@@ -90,9 +90,7 @@ class VoiceService : Service() {
             }
         }
         
-        // Запускаем инициализацию Vosk (он сам скачает модель, если надо)
         vosk.init()
-
         showNotification()
     }
 
