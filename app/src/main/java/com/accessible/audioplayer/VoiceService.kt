@@ -294,11 +294,12 @@ class VoiceService : Service() {
     }
 
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, isActivated=$isActivated, ignore=${System.currentTimeMillis() < tts.ignoreUntil}, ignoreIn=${tts.ignoreUntil - System.currentTimeMillis()}мс)")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
 
         if (recordingMode) return
+
         if (System.currentTimeMillis() < tts.ignoreUntil) {
-            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text' — осталось ${tts.ignoreUntil - System.currentTimeMillis()}мс")
+            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
             return
         }
 
@@ -320,6 +321,7 @@ class VoiceService : Service() {
             val words = text.split(" ").toSet()
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
                                  (words.contains("положить") && words.contains("трубку"))
+
             if (isHangupPhrase) {
                 Log.e("MYVOSK", "✅ Команда завершения звонка: '$text'")
                 tts.beepOk()
@@ -363,6 +365,7 @@ class VoiceService : Service() {
         if (awaitingName) {
             cancelSilenceTimeout()
             Log.e("MYVOSK", "Распознавание имени: '$text'")
+
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
             val commandWords = listOf(
                 "нет", "да", "отмена", "отменить", "позвони", "позвонить",
@@ -377,12 +380,14 @@ class VoiceService : Service() {
                 handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
+
             if (nameOnly.length < 2) {
                 tts.beepError()
                 tts.speakOutShort("Не расслышал. Повторите")
                 handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
+
             awaitingName = false
             tts.beepOk()
             tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
@@ -396,6 +401,7 @@ class VoiceService : Service() {
                         text.contains("взять") || text.contains("поднять") || text == "д"
             val hasNet = text.contains("нет") || text.startsWith("не") ||
                          text.contains("сброс") || text.contains("отклон")
+
             if (hasNet && !hasDa) {
                 contactIndex++
                 if (contactIndex < contactList.size) {
