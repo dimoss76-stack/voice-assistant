@@ -5,9 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -32,7 +29,7 @@ class VoiceService : Service() {
     private lateinit var settings: VoiceSettings
     private lateinit var contactCaller: ContactCaller
     private lateinit var tts: TtsSpeaker
-    private lateinit var sherpa: SherpaEngine
+    private lateinit var vosk: VoskEngine
 
     private var isActivated = false
     private var wakeLock: PowerManager.WakeLock? = null
@@ -60,10 +57,6 @@ class VoiceService : Service() {
     private var silenceTimeout: Runnable? = null
     private var choosingTimeout: Runnable? = null
 
-    private var audioThread: Thread? = null
-    @Volatile private var isListening = false
-    private var audioPacketCount = 0
-
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
 
@@ -81,21 +74,16 @@ class VoiceService : Service() {
         tts = TtsSpeaker(this)
         tts.init()
 
-        sherpa = SherpaEngine(
+        vosk = VoskEngine(
             context = this,
-            onResultCallback = { text -> 
-                sherpa.pauseListening()
-                handleRecognizedText(text) 
-            },
-            onErrorCallback = { e -> Log.e("MYVOSK", "Sherpa error: ${e.message}") }
+            onResultCallback = { text -> handleRecognizedText(text) },
+            onErrorCallback = { e -> Log.e("MYVOSK", "Vosk error: ${e.message}") }
         )
-        sherpa.onModelReady = {
-            handler.post {
-                startListening()
-                tts.speakOut("Помощник готов")
-            }
+        vosk.onModelReady = {
+            startListening()
+            tts.speakOut("Помощник готов")
         }
-        sherpa.init()
+        vosk.init()
 
         showNotification()
     }
@@ -118,9 +106,8 @@ class VoiceService : Service() {
         cancelChoosingTimeout()
         tts.cancelConfirmBeep()
         readingContacts = false
-        stopAudioThread()
         wakeLock?.let { if (it.isHeld) it.release() }
-        sherpa.release()
+        vosk.release()
         tts.release()
         super.onDestroy()
     }
@@ -140,7 +127,6 @@ class VoiceService : Service() {
         awaitingAnswer = true
         tts.speakOutShort("Звонит $callerName. Ответить?")
         tts.scheduleConfirmBeep()
-        sherpa.resumeListening()
     }
 
     fun onCallAnswered() {
@@ -155,7 +141,7 @@ class VoiceService : Service() {
         tts.cancelConfirmBeep()
         inCallMonitoring = true
         tts.setIgnoreUntil(System.currentTimeMillis() + 1500L)
-        sherpa.startListeningForHangup()
+        vosk.startListeningForHangup()
     }
 
     fun onCallEnded() {
@@ -175,72 +161,11 @@ class VoiceService : Service() {
     private fun startListening() {
         cancelSilenceTimeout()
         stopListeningActive = false
-        startAudioThread()
-        sherpa.resumeListening()
-    }
-
-    private fun startAudioThread() {
-        if (isListening) return
-        isListening = true
-        audioPacketCount = 0
-
-        sherpa.startListening(
+        vosk.startListening(
             activation = settings.activationWord,
             confirm = settings.confirmWord,
             shutdown = settings.shutdownWord
         )
-
-        audioThread = Thread {
-            val sampleRate = 16000
-            val bufferSize = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            val audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize * 4
-            )
-
-            if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e("MYVOSK", "❌ AudioRecord НЕ инициализирован")
-                isListening = false
-                return@Thread
-            }
-
-            audioRecord.startRecording()
-            Log.e("MYVOSK", "🎤 Микрофон запущен, начинаю чтение")
-
-            val buffer = ShortArray(bufferSize)
-
-            while (isListening) {
-                val read = audioRecord.read(buffer, 0, buffer.size)
-                if (read > 0) {
-                    audioPacketCount++
-                    if (audioPacketCount % 100 == 0) {
-                        Log.e("MYVOSK", "🎤 Получено пакетов: $audioPacketCount (read=$read)")
-                    }
-                    sherpa.acceptAudio(buffer, read)
-                } else if (read == AudioRecord.ERROR_INVALID_OPERATION) {
-                    Log.e("MYVOSK", "❌ Ошибка AudioRecord: INVALID_OPERATION")
-                } else if (read == AudioRecord.ERROR_BAD_VALUE) {
-                    Log.e("MYVOSK", "❌ Ошибка AudioRecord: BAD_VALUE")
-                }
-            }
-            audioRecord.stop()
-            audioRecord.release()
-            Log.e("MYVOSK", "🎤 Микрофон остановлен")
-        }
-        audioThread?.start()
-    }
-
-    private fun stopAudioThread() {
-        isListening = false
-        audioThread?.interrupt()
-        audioThread = null
     }
 
     private fun startListeningForName() {
@@ -252,10 +177,12 @@ class VoiceService : Service() {
         }
         Log.e("MYVOSK", "Контактов в словаре: ${cachedNames.size}")
 
-        sherpa.prepareListeningForNames(cachedNames)
+        vosk.prepareListeningForNames(cachedNames)
         tts.beepName()
         tts.setIgnoreUntil(System.currentTimeMillis() + 800L)
         handler.postDelayed({
+            vosk.startListeningNow()
+            Log.e("MYVOSK", "Распознавание имён запущено (${cachedNames.size} имён)")
             startSilenceTimeout()
         }, 1000L)
     }
@@ -320,6 +247,8 @@ class VoiceService : Service() {
         tts.speakOut("Всего $countWord. Слушайте.")
         val delayAfterIntro = tts.ignoreUntil - System.currentTimeMillis() + 300L
         handler.postDelayed({
+            vosk.startListeningForStop()
+            stopListeningActive = true
             readNextContact()
         }, delayAfterIntro.coerceAtLeast(3000L))
     }
@@ -328,6 +257,7 @@ class VoiceService : Service() {
         if (!readingContacts) return
         if (contactsReadIndex >= contactsToRead.size) {
             readingContacts = false
+            stopListeningActive = false
             tts.beepOk()
             tts.speakOutShort("Конец списка")
             handler.postDelayed({ startListening() }, 3000L)
@@ -351,6 +281,7 @@ class VoiceService : Service() {
     private fun stopReadingContacts() {
         Log.e("MYVOSK", "Остановка чтения контактов")
         readingContacts = false
+        stopListeningActive = false
         tts.beepOk()
         tts.speakOutShort("Остановлено")
         handler.postDelayed({ startListening() }, 3000L)
@@ -359,29 +290,33 @@ class VoiceService : Service() {
     private fun handleRecognizedText(text: String) {
         Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
 
-        if (recordingMode) {
-            sherpa.resumeListening()
-            return
-        }
+        if (recordingMode) return
 
         if (System.currentTimeMillis() < tts.ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
-            sherpa.resumeListening()
             return
         }
 
-        if (readingContacts) {
-            if (text.contains("стоп") || text.contains("отмена") || text.contains("хватит")) {
+        if (readingContacts || stopListeningActive) {
+            val words = text.split(" ").toSet()
+            val isStop = words.contains("стоп") || words.contains("отмена") ||
+                         words.contains("отменить") || words.contains("хватит") ||
+                         words.contains("остановись") || words.contains("прекрати")
+            if (isStop) {
+                Log.e("MYVOSK", "✅ Команда 'стоп' во время чтения")
                 stopReadingContacts()
+            } else {
+                Log.e("MYVOSK", "Во время чтения контактов игнорирую: '$text'")
             }
-            sherpa.resumeListening()
             return
         }
 
         if (inCallMonitoring) {
-            val isHangupPhrase = (text.contains("завершить") && text.contains("звонок")) ||
-                                 (text.contains("положить") && text.contains("трубку"))
+            val words = text.split(" ").toSet()
+            val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
+                                 (words.contains("положить") && words.contains("трубку"))
             if (isHangupPhrase) {
+                Log.e("MYVOSK", "✅ Команда завершения звонка: '$text'")
                 tts.beepOk()
                 tts.speakOutShort("Завершаю")
                 handler.postDelayed({
@@ -389,16 +324,22 @@ class VoiceService : Service() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                             tm.endCall()
+                            Log.e("MYVOSK", "Звонок завершён")
                         }
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("MYVOSK", "Ошибка завершения: ${e.message}", e)
+                    }
                 }, 1500L)
+            } else {
+                Log.e("MYVOSK", "В звонке, игнорирую: '$text'")
             }
-            sherpa.resumeListening()
             return
         }
 
         if (isAnyActiveMode()) {
-            if (text.contains("отмена") || text.contains("отменить") || text.contains("стоп") || text.contains("хватит")) {
+            if (text.contains("отмена") || text.contains("отменить") ||
+                text.contains("стоп") || text.contains("хватит")) {
+                Log.e("MYVOSK", "Экстренная отмена (активный режим)")
                 choosingContact = false
                 awaitingName = false
                 awaitingAnswer = false
@@ -410,40 +351,53 @@ class VoiceService : Service() {
                 cancelChoosingTimeout()
                 tts.beepOk()
                 tts.speakOutShort("Отменено")
-                sherpa.resumeListening()
                 return
             }
         }
 
         if (awaitingName) {
             cancelSilenceTimeout()
+            Log.e("MYVOSK", "Распознавание имени: '$text'")
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
-            val commandWords = listOf("нет", "да", "отмена", "позвони", "позвонить", "звонок", "трубку")
-            if (nameOnly in commandWords || nameOnly.length < 2) {
+            val commandWords = listOf(
+                "нет", "да", "отмена", "отменить", "позвони", "позвонить",
+                "звонок", "трубку", "дата", "время", "день", "число",
+                "завершить", "положить", "набери", "набрать",
+                "контакты", "список", "покажи"
+            )
+            if (nameOnly in commandWords) {
+                Log.e("MYVOSK", "Это команда, а не имя: '$nameOnly'")
                 tts.beepError()
                 tts.speakOutShort("Назовите имя")
                 handler.postDelayed({ startListeningForName() }, 3500L)
-                sherpa.resumeListening()
+                return
+            }
+            if (nameOnly.length < 2) {
+                tts.beepError()
+                tts.speakOutShort("Не расслышал. Повторите")
+                handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
             awaitingName = false
             tts.beepOk()
             tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
             handler.postDelayed({ startContactCall(nameOnly) }, 400)
-            sherpa.resumeListening()
             return
         }
 
         if (choosingContact) {
             cancelChoosingTimeout()
-            val hasDa = text.contains("да") || text.contains("возьми") || text == "д"
-            val hasNet = text.contains("нет") || text.startsWith("не")
+            val hasDa = text.contains("да") || text.contains("возьми") ||
+                        text.contains("взять") || text.contains("поднять") || text == "д"
+            val hasNet = text.contains("нет") || text.startsWith("не") ||
+                         text.contains("сброс") || text.contains("отклон")
 
             if (hasNet && !hasDa) {
                 contactIndex++
                 if (contactIndex < contactList.size) {
                     val c = contactList[contactIndex]
                     tts.speakOutShort("${ordinalWord(contactIndex + 1)} ${c.name}. Звонить?")
+                    handler.postDelayed({ startListening() }, 100L)
                     tts.scheduleConfirmBeep()
                     startChoosingTimeout()
                 } else {
@@ -451,10 +405,10 @@ class VoiceService : Service() {
                     contactList = emptyList()
                     contactIndex = 0
                     awaitingName = true
+                    tts.beepError()
                     tts.speakOutShort("Больше нет. Назовите другое имя")
                     handler.postDelayed({ startListeningForName() }, 6000L)
                 }
-                sherpa.resumeListening()
                 return
             }
             if (hasDa) {
@@ -466,27 +420,30 @@ class VoiceService : Service() {
                     contactList = emptyList()
                     contactIndex = 0
                     tts.setIgnoreUntil(System.currentTimeMillis() + 10000L)
-                    handler.postDelayed({ contactCaller.callNumber(c.number) }, 1500L)
+                    handler.postDelayed({
+                        contactCaller.callNumber(c.number)
+                    }, 1500L)
                 } else {
                     choosingContact = false
+                    contactList = emptyList()
+                    contactIndex = 0
                 }
-                sherpa.resumeListening()
                 return
             }
             startChoosingTimeout()
-            sherpa.resumeListening()
             return
         }
 
         if (awaitingAnswer) {
-            val hasDa = text.contains("да") || text.contains("ответь") || text == "д"
-            val hasNet = text.contains("нет") || text.contains("сбрось")
+            val hasDa = text.contains("да") || text.contains("возьми") ||
+                        text.contains("взять") || text.contains("поднять") || text == "д"
+            val hasNet = text.contains("нет") || text.startsWith("не") ||
+                         text.contains("сброс") || text.contains("отклон")
             if (hasNet && !hasDa) {
                 tts.beepOk()
                 tts.speakOutShort("Отклоняю")
                 rejectCall()
                 awaitingAnswer = false
-                sherpa.resumeListening()
                 return
             }
             if (hasDa) {
@@ -494,10 +451,8 @@ class VoiceService : Service() {
                 tts.speakOutShort("Отвечаю")
                 acceptCall()
                 awaitingAnswer = false
-                sherpa.resumeListening()
                 return
             }
-            sherpa.resumeListening()
             return
         }
 
@@ -512,10 +467,7 @@ class VoiceService : Service() {
 
         if (!isActivated) {
             if (text.contains(activation)) {
-                if (System.currentTimeMillis() - lastActivationTime < 3000) {
-                    sherpa.resumeListening()
-                    return
-                }
+                if (System.currentTimeMillis() - lastActivationTime < 3000) return
                 lastActivationTime = System.currentTimeMillis()
                 isActivated = true
                 val cmd = text.replace(activation, "").trim()
@@ -530,20 +482,12 @@ class VoiceService : Service() {
                     handler.postDelayed(resetActivation, 15000L)
                 }
             }
-            sherpa.resumeListening()
         } else {
-            if (text == activation) {
-                sherpa.resumeListening()
-                return
-            }
-            if (text.length < 3) {
-                sherpa.resumeListening()
-                return
-            }
+            if (text == activation) return
+            if (text.length < 3) return
             executeCommand(text)
             handler.removeCallbacks(resetActivation)
             handler.postDelayed(resetActivation, 10000L)
-            sherpa.resumeListening()
         }
     }
 
@@ -556,9 +500,15 @@ class VoiceService : Service() {
             return
         }
 
-        if (command.contains("позвони") || command.contains("позвонить") || command.contains("набери") || command.contains("набрать")) {
-            val name = command.replace("позвонить", "").replace("позвони", "").replace("набрать", "").replace("набери", "").trim()
-            if (name.isEmpty() || name.length < 3 || name == "день" || name == "дата" || name == "время") {
+        if (command.contains("позвони") || command.contains("позвонить") ||
+            command.contains("набери") || command.contains("набрать")) {
+            val name = command
+                .replace("позвонить", "").replace("позвони", "")
+                .replace("набрать", "").replace("набери", "").trim()
+            Log.e("MYVOSK", "Имя в команде: '$name'")
+            if (name.isEmpty() || name.length < 3 ||
+                name == "день" || name == "дата" || name == "время" ||
+                name == "часы" || name == "час") {
                 awaitingName = true
                 tts.speakOut("Каму звонить?")
                 handler.postDelayed({ startListeningForName() }, 3000L)
@@ -585,7 +535,9 @@ class VoiceService : Service() {
     }
 
     private fun startContactCall(query: String) {
+        Log.e("MYVOSK", "startContactCall: '$query'")
         val contacts = contactCaller.findContacts(query)
+
         if (contacts.isEmpty()) {
             tts.beepError()
             tts.speakOut("Контакт не найден. Назовите другое имя")
@@ -599,6 +551,7 @@ class VoiceService : Service() {
             contactList = contacts
             contactIndex = 0
             tts.speakOutShort("${c.name}. Звонить?")
+            handler.postDelayed({ startListening() }, 100L)
             tts.scheduleConfirmBeep()
             startChoosingTimeout()
             return
@@ -606,15 +559,20 @@ class VoiceService : Service() {
         contactList = contacts
         contactIndex = 0
         choosingContact = true
-        tts.speakOutShort("Нашёл ${contacts.size}. Первый ${contacts[0].name}. Звонить?")
+        val first = contacts[0]
+        val ordinal = ordinalWord(1)
+        tts.speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
+        handler.postDelayed({ startListening() }, 100L)
         tts.scheduleConfirmBeep()
         startChoosingTimeout()
     }
 
     private fun ordinalWord(n: Int): String {
         return when (n) {
-            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"; 4 -> "Четвёртый"; 5 -> "Пятый"
-            else -> "$n-й"
+            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"
+            4 -> "Четвёртый"; 5 -> "Пятый"; 6 -> "Шестой"
+            7 -> "Седьмой"; 8 -> "Восьмой"; 9 -> "Девятый"
+            10 -> "Десятый"; else -> "$n-й"
         }
     }
 
@@ -623,8 +581,11 @@ class VoiceService : Service() {
         recordingMode = true
         tts.speakOut("Говорите")
         handler.postDelayed({
-            sendWordResult("")
-        }, 5000L)
+            Thread {
+                val word = vosk.recordSingleWord(5000L)
+                sendWordResult(word)
+            }.start()
+        }, 1500L)
     }
 
     private fun sendWordResult(text: String) {
@@ -645,7 +606,7 @@ class VoiceService : Service() {
                 val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                 tm.acceptRingingCall()
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
     }
 
     private fun rejectCall() {
@@ -654,13 +615,15 @@ class VoiceService : Service() {
                 val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                 tm.endCall()
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
     }
 
     private fun showNotification() {
         val channelId = "voice_service_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW
+            )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
         val notification: Notification = NotificationCompat.Builder(this, channelId)
@@ -671,7 +634,8 @@ class VoiceService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } else {
             startForeground(1, notification)
         }
