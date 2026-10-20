@@ -14,21 +14,20 @@ import java.util.zip.ZipInputStream
 class ModelDownloader(private val context: Context) {
 
     companion object {
-        // Ссылка на архив с моделью (Dropbox, Яндекс.Диск и т.д.)
+        // ВАЖНО: Убедитесь, что ссылка на ZIP заканчивается на ?dl=1 (для Dropbox)
         private const val MODEL_URL = "https://www.dropbox.com/scl/fi/6iif93kkyr5q17uwi4vjv/model-ru.zip?rlkey=in96kpf4hyylzfbfnjedt9v7o&st=jjoou9vo&dl=1"
         private const val ZIP_NAME = "model-ru.zip"
-        private const val FOLDER_NAME = "model-large"
+        private const val FOLDER_NAME = "vosk-model-small-streaming-ru"
     }
 
     fun getModelDir(): File {
         val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val root = File(publicDownloads, "VoiceAssistant")
-        return File(root, FOLDER_NAME)
+        return File(File(publicDownloads, "VoiceAssistant"), FOLDER_NAME)
     }
 
     fun isModelReady(): Boolean {
         val dir = getModelDir()
-        return dir.exists() && dir.listFiles()?.isNotEmpty() == true
+        return dir.exists() && File(dir, "am").exists()
     }
 
     fun downloadAndUnzip(
