@@ -15,7 +15,8 @@ class SherpaEngine(
     private var stream: OnlineStream? = null
     private var isInitialized = false
 
-    // Пути к файлам модели (ваша большая модель)
+    var onModelReady: (() -> Unit)? = null
+
     private fun getModelDir(): File {
         val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         return File(File(publicDownloads, "VoiceAssistant"), "vosk-model-small-streaming-ru")
@@ -30,8 +31,7 @@ class SherpaEngine(
         }
 
         try {
-            // Конфигурация для потокового распознавания (Streaming)
-            // Используем int8 версии файлов, они легче и быстрее
+            // ИСПРАВЛЕННАЯ КОНФИГУРАЦИЯ
             val config = OnlineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
                 modelConfig = OnlineModelConfig(
@@ -42,14 +42,14 @@ class SherpaEngine(
                     ),
                     tokens = File(modelDir, "lang/tokens.txt").absolutePath,
                     numThreads = 2,
-                    provider = "cpu", // или "nnapi" для ускорения
-                    debug = 1,
+                    provider = "cpu",
+                    debug = true, // <-- ИСПРАВЛЕНО: Boolean, а не Int
                 ),
-                // Включаем определение конца фразы, чтобы понимать, когда пользователь закончил
+                // Упрощенные правила детекции конца фразы
                 endpointConfig = EndpointConfig(
-                    rule1 = EndpointRule(false, 2.4, 0.0f), // правило для тишины
-                    rule2 = EndpointRule(true, 1.2, 0.0f),  // правило для речи
-                    rule3 = EndpointRule(false, 0.0, 0.0f),
+                    rule1 = EndpointRule(false, 2.4f, 0.0f), // <-- ИСПРАВЛЕНО: Float
+                    rule2 = EndpointRule(true, 1.2f, 0.0f),   // <-- ИСПРАВЛЕНО: Float
+                    rule3 = EndpointRule(false, 0.0f, 0.0f),  // <-- ИСПРАВЛЕНО: Float
                 ),
                 decodingMethod = "greedy_search"
             )
@@ -58,8 +58,6 @@ class SherpaEngine(
             stream = recognizer?.createStream()
             isInitialized = true
             Log.e("MYVOSK", "✅ Sherpa-ONNX успешно инициализирован")
-            
-            // Сообщаем VoiceService, что модель готова
             onModelReady?.invoke()
         } catch (e: Exception) {
             Log.e("MYVOSK", "❌ Ошибка инициализации Sherpa: ${e.message}", e)
@@ -67,50 +65,42 @@ class SherpaEngine(
         }
     }
 
-    var onModelReady: (() -> Unit)? = null
-
-    // Этот метод будет вызываться из VoiceService, когда нужно начать слушать
     fun startListening(activation: String, confirm: String, shutdown: String) {
         if (!isInitialized) return
         Log.e("MYVOSK", "Sherpa: старт прослушивания")
-        // Сбрасываем стрим, чтобы начать новую сессию распознавания
         stream?.release()
         stream = recognizer?.createStream()
     }
 
-    // Этот метод вызывается из VoiceService, когда мы ждём имя контакта
     fun prepareListeningForNames(names: List<String>) {
-        // В sherpa-onnx можно использовать hotwords для повышения точности,
-        // но пока просто перезапустим стрим для нового распознавания
         startListening("", "", "")
     }
 
     fun startListeningNow() {
-        // Ничего не делаем, стрим уже создан
+        // Ничего не делаем
     }
 
-    // Метод для получения аудио-данных. Вам нужно будет вызвать его из AudioRecord
+    // ИСПРАВЛЕНО: локальная переменная для умного приведения типов (smart cast)
     fun acceptAudio(buffer: ShortArray, read: Int) {
-        if (!isInitialized || stream == null) return
-        // Sherpa-onnx ожидает float массив в диапазоне [-1, 1]
-        val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
-        stream?.acceptWaveform(floatBuffer, 16000)
+        if (!isInitialized) return
+        val currentStream = stream ?: return
         
-        // Проверяем, не закончилась ли фраза
-        if (recognizer?.isEndpoint(stream) == true) {
-            val text = recognizer?.getResult(stream)?.text?.trim()?.lowercase()
+        val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
+        currentStream.acceptWaveform(floatBuffer, 16000)
+        
+        val currentRecognizer = recognizer ?: return
+        if (currentRecognizer.isEndpoint(currentStream)) {
+            val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase()
             if (!text.isNullOrEmpty()) {
                 Log.e("MYVOSK", "Sherpa распознал: '$text'")
                 onResultCallback(text)
             }
-            // Сбрасываем стрим для следующей фразы
-            stream?.release()
-            stream = recognizer?.createStream()
+            currentStream.release()
+            stream = currentRecognizer.createStream()
         }
     }
 
     fun startListeningForHangup() {
-        // Логика для мониторинга звонка (можно оставить простой перезапуск)
         startListening("", "", "")
     }
 
@@ -131,8 +121,6 @@ class SherpaEngine(
     }
 
     fun recordSingleWord(durationMs: Long): String {
-        // Пока заглушка, для записи слов в настройках можно использовать Vosk
-        // или реализовать отдельный поток с AudioRecord
         return ""
     }
 }
