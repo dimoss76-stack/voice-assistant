@@ -60,9 +60,9 @@ class VoiceService : Service() {
     private var silenceTimeout: Runnable? = null
     private var choosingTimeout: Runnable? = null
 
-    // Поток для чтения микрофона
     private var audioThread: Thread? = null
     @Volatile private var isListening = false
+    private var audioPacketCount = 0 // Для логов
 
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
@@ -81,7 +81,6 @@ class VoiceService : Service() {
         tts = TtsSpeaker(this)
         tts.init()
 
-        // Инициализируем Sherpa
         sherpa = SherpaEngine(
             context = this,
             onResultCallback = { text -> handleRecognizedText(text) },
@@ -180,6 +179,7 @@ class VoiceService : Service() {
     private fun startAudioThread() {
         if (isListening) return
         isListening = true
+        audioPacketCount = 0
 
         sherpa.startListening(
             activation = settings.activationWord,
@@ -203,23 +203,34 @@ class VoiceService : Service() {
             )
 
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e("MYVOSK", "AudioRecord не инициализирован")
+                Log.e("MYVOSK", "❌ AudioRecord НЕ инициализирован")
                 isListening = false
                 return@Thread
             }
 
             audioRecord.startRecording()
+            Log.e("MYVOSK", "🎤 Микрофон запущен, начинаю чтение")
+
             val buffer = ShortArray(bufferSize)
 
             while (isListening) {
                 val read = audioRecord.read(buffer, 0, buffer.size)
                 if (read > 0) {
-                    // Передаем данные в Sherpa
+                    audioPacketCount++
+                    // Логируем каждый 100-й пакет (чтобы не засорять лог)
+                    if (audioPacketCount % 100 == 0) {
+                        Log.e("MYVOSK", "🎤 Получено пакетов: $audioPacketCount (read=$read)")
+                    }
                     sherpa.acceptAudio(buffer, read)
+                } else if (read == AudioRecord.ERROR_INVALID_OPERATION) {
+                    Log.e("MYVOSK", "❌ Ошибка AudioRecord: INVALID_OPERATION")
+                } else if (read == AudioRecord.ERROR_BAD_VALUE) {
+                    Log.e("MYVOSK", "❌ Ошибка AudioRecord: BAD_VALUE")
                 }
             }
             audioRecord.stop()
             audioRecord.release()
+            Log.e("MYVOSK", "🎤 Микрофон остановлен")
         }
         audioThread?.start()
     }
@@ -239,7 +250,6 @@ class VoiceService : Service() {
         }
         Log.e("MYVOSK", "Контактов в словаре: ${cachedNames.size}")
 
-        // Для Sherpa мы просто перезапускаем поток (в будущем можно добавить hotwords)
         sherpa.prepareListeningForNames(cachedNames)
         tts.beepName()
         tts.setIgnoreUntil(System.currentTimeMillis() + 800L)
@@ -309,7 +319,6 @@ class VoiceService : Service() {
         tts.speakOut("Всего $countWord. Слушайте.")
         val delayAfterIntro = tts.ignoreUntil - System.currentTimeMillis() + 300L
         handler.postDelayed({
-            // В Sherpa мы просто слушаем дальше, но проверяем слова "стоп" в handleRecognizedText
             readNextContact()
         }, delayAfterIntro.coerceAtLeast(3000L))
     }
@@ -588,7 +597,6 @@ class VoiceService : Service() {
         recordingMode = true
         tts.speakOut("Говорите")
         handler.postDelayed({
-            // Заглушка, так как SherpaEngine.recordSingleWord пока не реализован
             sendWordResult("")
         }, 5000L)
     }
