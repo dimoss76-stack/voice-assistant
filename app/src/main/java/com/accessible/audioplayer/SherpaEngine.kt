@@ -131,6 +131,14 @@ class SherpaEngine(
             lastText = text
             Log.e("MYVOSK", "Sherpa распознал: '$text'")
             onResultCallback(text)
+            
+            // ОЧИЩАЕМ СТРИМ ПОСЛЕ ВЫДАЧИ РЕЗУЛЬТАТА
+            // Создаём новый стрим, чтобы не накапливать текст
+            currentStream.release()
+            stream = currentRecognizer.createStream()
+            lastText = ""
+            packetCounter = 0
+            Log.e("MYVOSK", "Sherpa: стрим очищен после выдачи результата")
         }
         handler.postDelayed(checkResultRunnable, 1000L)
     }
