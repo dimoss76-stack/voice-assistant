@@ -26,6 +26,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var modelStatusText: TextView
     private lateinit var btnToggleModel: Button
+    private lateinit var btnDownloadModel: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var checkShowCallButtons: CheckBox
     private lateinit var checkShutdownEnabled: CheckBox
@@ -73,7 +74,8 @@ class SettingsActivity : AppCompatActivity() {
         val btnBack = findViewById<Button>(R.id.btnBack)
         statusText = findViewById(R.id.statusText)
         modelStatusText = findViewById(R.id.modelStatusText)
-        btnToggleModel = findViewById(R.id.btnDownloadLarge)
+        btnToggleModel = findViewById(R.id.btnDownloadLarge) // Это кнопка "Скачать"
+        btnDownloadModel = findViewById(R.id.btnDownloadLarge) // Используем тот же ID
         progressBar = findViewById(R.id.progressBar)
         checkShowCallButtons = findViewById(R.id.checkShowCallButtons)
         checkShutdownEnabled = findViewById(R.id.checkShutdownEnabled)
@@ -110,13 +112,24 @@ class SettingsActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { finish() }
 
-        btnToggleModel.setOnClickListener {
+        // Обработчик кнопки загрузки/удаления модели
+        btnDownloadModel.setOnClickListener {
             if (modelDownloader.isModelReady()) {
-                modelDownloader.getModelDir().deleteRecursively()
-                updateModelUI()
-                Toast.makeText(this, "Модель удалена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+                // Если модель скачана — предлагаем переключиться или удалить
+                if (settings.modelMode == 0) {
+                    // Включаем streaming
+                    settings.modelMode = 1
+                    updateModelUI()
+                    Toast.makeText(this, "Включена streaming-модель. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+                } else {
+                    // Выключаем streaming
+                    settings.modelMode = 0
+                    updateModelUI()
+                    Toast.makeText(this, "Включена стандартная модель. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+                }
             } else {
-                btnToggleModel.isEnabled = false
+                // Модели нет — скачиваем
+                btnDownloadModel.isEnabled = false
                 progressBar.visibility = View.VISIBLE
                 progressBar.progress = 0
                 modelStatusText.text = "Загрузка: 0%"
@@ -135,11 +148,13 @@ class SettingsActivity : AppCompatActivity() {
                         runOnUiThread {
                             progressBar.visibility = View.GONE
                             if (success) {
+                                // После успешной загрузки автоматически включаем streaming
+                                settings.modelMode = 1
                                 updateModelUI()
                                 Toast.makeText(this@SettingsActivity, "Модель установлена. Перезапустите помощника.", Toast.LENGTH_LONG).show()
                             } else {
-                                btnToggleModel.isEnabled = true
-                                btnToggleModel.text = "ПОВТОРИТЬ ЗАГРУЗКУ"
+                                btnDownloadModel.isEnabled = true
+                                btnDownloadModel.text = "ПОВТОРИТЬ ЗАГРУЗКУ"
                                 modelStatusText.text = "Ошибка загрузки."
                             }
                         }
@@ -153,13 +168,18 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateModelUI() {
         if (modelDownloader.isModelReady()) {
-            modelStatusText.text = "Модель: улучшенная (загружена)"
-            btnToggleModel.text = "УДАЛИТЬ МОДЕЛЬ"
+            if (settings.modelMode == 1) {
+                modelStatusText.text = "Модель: streaming (569 МБ, используется)"
+                btnDownloadModel.text = "ВЕРНУТЬСЯ К СТАНДАРТНОЙ"
+            } else {
+                modelStatusText.text = "Модель: стандартная (45 МБ)\nДоступна streaming-модель (569 МБ)"
+                btnDownloadModel.text = "ИСПОЛЬЗОВАТЬ STREAMING-МОДЕЛЬ"
+            }
         } else {
-            modelStatusText.text = "Модель: стандартная (встроенная)\nУлучшенная модель не загружена."
-            btnToggleModel.text = "СКАЧАТЬ УЛУЧШЕННУЮ МОДЕЛЬ"
+            modelStatusText.text = "Модель: стандартная (45 МБ)\nStreaming-модель не загружена."
+            btnDownloadModel.text = "СКАЧАТЬ STREAMING-МОДЕЛЬ"
         }
-        btnToggleModel.isEnabled = true
+        btnDownloadModel.isEnabled = true
     }
 
     private fun startRecordingFor(fieldName: String) {
