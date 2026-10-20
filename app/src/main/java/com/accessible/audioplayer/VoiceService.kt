@@ -62,7 +62,7 @@ class VoiceService : Service() {
 
     private var audioThread: Thread? = null
     @Volatile private var isListening = false
-    private var audioPacketCount = 0 // Для логов
+    private var audioPacketCount = 0
 
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
@@ -83,7 +83,10 @@ class VoiceService : Service() {
 
         sherpa = SherpaEngine(
             context = this,
-            onResultCallback = { text -> handleRecognizedText(text) },
+            onResultCallback = { text -> 
+                sherpa.pauseListening()
+                handleRecognizedText(text) 
+            },
             onErrorCallback = { e -> Log.e("MYVOSK", "Sherpa error: ${e.message}") }
         )
         sherpa.onModelReady = {
@@ -137,6 +140,7 @@ class VoiceService : Service() {
         awaitingAnswer = true
         tts.speakOutShort("Звонит $callerName. Ответить?")
         tts.scheduleConfirmBeep()
+        sherpa.resumeListening()
     }
 
     fun onCallAnswered() {
@@ -168,12 +172,11 @@ class VoiceService : Service() {
         startListening()
     }
 
-    // ==================== УПРАВЛЕНИЕ МИКРОФОНОМ ====================
-
     private fun startListening() {
         cancelSilenceTimeout()
         stopListeningActive = false
         startAudioThread()
+        sherpa.resumeListening()
     }
 
     private fun startAudioThread() {
@@ -217,7 +220,6 @@ class VoiceService : Service() {
                 val read = audioRecord.read(buffer, 0, buffer.size)
                 if (read > 0) {
                     audioPacketCount++
-                    // Логируем каждый 100-й пакет (чтобы не засорять лог)
                     if (audioPacketCount % 100 == 0) {
                         Log.e("MYVOSK", "🎤 Получено пакетов: $audioPacketCount (read=$read)")
                     }
@@ -299,7 +301,6 @@ class VoiceService : Service() {
                inCallMonitoring || isActivated || readingContacts
     }
 
-    // ==================== ЧТЕНИЕ КОНТАКТОВ ====================
     private fun startReadingContacts() {
         val contacts = contactCaller.getAllContactsSorted()
         if (contacts.isEmpty()) {
@@ -355,14 +356,17 @@ class VoiceService : Service() {
         handler.postDelayed({ startListening() }, 3000L)
     }
 
-    // ==================== ОБРАБОТКА ТЕКСТА ====================
     private fun handleRecognizedText(text: String) {
         Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
 
-        if (recordingMode) return
+        if (recordingMode) {
+            sherpa.resumeListening()
+            return
+        }
 
         if (System.currentTimeMillis() < tts.ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
+            sherpa.resumeListening()
             return
         }
 
@@ -370,6 +374,7 @@ class VoiceService : Service() {
             if (text.contains("стоп") || text.contains("отмена") || text.contains("хватит")) {
                 stopReadingContacts()
             }
+            sherpa.resumeListening()
             return
         }
 
@@ -388,6 +393,7 @@ class VoiceService : Service() {
                     } catch (e: Exception) {}
                 }, 1500L)
             }
+            sherpa.resumeListening()
             return
         }
 
@@ -404,6 +410,7 @@ class VoiceService : Service() {
                 cancelChoosingTimeout()
                 tts.beepOk()
                 tts.speakOutShort("Отменено")
+                sherpa.resumeListening()
                 return
             }
         }
@@ -416,12 +423,14 @@ class VoiceService : Service() {
                 tts.beepError()
                 tts.speakOutShort("Назовите имя")
                 handler.postDelayed({ startListeningForName() }, 3500L)
+                sherpa.resumeListening()
                 return
             }
             awaitingName = false
             tts.beepOk()
             tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
             handler.postDelayed({ startContactCall(nameOnly) }, 400)
+            sherpa.resumeListening()
             return
         }
 
@@ -445,6 +454,7 @@ class VoiceService : Service() {
                     tts.speakOutShort("Больше нет. Назовите другое имя")
                     handler.postDelayed({ startListeningForName() }, 6000L)
                 }
+                sherpa.resumeListening()
                 return
             }
             if (hasDa) {
@@ -460,9 +470,11 @@ class VoiceService : Service() {
                 } else {
                     choosingContact = false
                 }
+                sherpa.resumeListening()
                 return
             }
             startChoosingTimeout()
+            sherpa.resumeListening()
             return
         }
 
@@ -474,6 +486,7 @@ class VoiceService : Service() {
                 tts.speakOutShort("Отклоняю")
                 rejectCall()
                 awaitingAnswer = false
+                sherpa.resumeListening()
                 return
             }
             if (hasDa) {
@@ -481,8 +494,10 @@ class VoiceService : Service() {
                 tts.speakOutShort("Отвечаю")
                 acceptCall()
                 awaitingAnswer = false
+                sherpa.resumeListening()
                 return
             }
+            sherpa.resumeListening()
             return
         }
 
@@ -497,7 +512,10 @@ class VoiceService : Service() {
 
         if (!isActivated) {
             if (text.contains(activation)) {
-                if (System.currentTimeMillis() - lastActivationTime < 3000) return
+                if (System.currentTimeMillis() - lastActivationTime < 3000) {
+                    sherpa.resumeListening()
+                    return
+                }
                 lastActivationTime = System.currentTimeMillis()
                 isActivated = true
                 val cmd = text.replace(activation, "").trim()
@@ -512,12 +530,20 @@ class VoiceService : Service() {
                     handler.postDelayed(resetActivation, 15000L)
                 }
             }
+            sherpa.resumeListening()
         } else {
-            if (text == activation) return
-            if (text.length < 3) return
+            if (text == activation) {
+                sherpa.resumeListening()
+                return
+            }
+            if (text.length < 3) {
+                sherpa.resumeListening()
+                return
+            }
             executeCommand(text)
             handler.removeCallbacks(resetActivation)
             handler.postDelayed(resetActivation, 10000L)
+            sherpa.resumeListening()
         }
     }
 
