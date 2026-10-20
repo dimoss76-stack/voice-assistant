@@ -16,6 +16,7 @@ class SherpaEngine(
     private var recognizer: OnlineRecognizer? = null
     private var stream: OnlineStream? = null
     private var isInitialized = false
+    private var isPaused = false
     private var packetCounter = 0
 
     private var lastText = ""
@@ -58,11 +59,10 @@ class SherpaEngine(
                         joiner = joinerFile.absolutePath,
                     ),
                     tokens = tokensFile.absolutePath,
-                    numThreads = 1, // УМЕНЬШЕНО до 1, чтобы снизить нагрузку
+                    numThreads = 1,
                     provider = "cpu",
                     debug = true,
                 ),
-                // Отключаем endpoint, чтобы он не спамил
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 0.0f, 0.0f),
                     rule2 = EndpointRule(false, 0.0f, 0.0f),
@@ -85,19 +85,34 @@ class SherpaEngine(
     fun startListening(activation: String, confirm: String, shutdown: String) {
         if (!isInitialized) return
         Log.e("MYVOSK", "Sherpa: старт прослушивания")
+        isPaused = false
         stream?.release()
         stream = recognizer?.createStream()
         lastText = ""
         packetCounter = 0
         
         handler.removeCallbacks(resetStreamRunnable)
-        handler.postDelayed(resetStreamRunnable, 3000L) // СБРОС КАЖДЫЕ 3 СЕКУНДЫ
+        handler.postDelayed(resetStreamRunnable, 3000L)
         handler.removeCallbacks(checkResultRunnable)
         handler.postDelayed(checkResultRunnable, 1000L)
     }
 
+    fun pauseListening() {
+        Log.e("MYVOSK", "Sherpa: пауза (обработка команды)")
+        isPaused = true
+        handler.removeCallbacks(resetStreamRunnable)
+        handler.removeCallbacks(checkResultRunnable)
+    }
+
+    fun resumeListening() {
+        Log.e("MYVOSK", "Sherpa: возобновление")
+        isPaused = false
+        handler.postDelayed(resetStreamRunnable, 3000L)
+        handler.postDelayed(checkResultRunnable, 1000L)
+    }
+
     private fun resetStream() {
-        if (!isInitialized) return
+        if (!isInitialized || isPaused) return
         Log.e("MYVOSK", "Sherpa: принудительный сброс стрима (пакетов обработано: $packetCounter)")
         stream?.release()
         stream = recognizer?.createStream()
@@ -107,7 +122,7 @@ class SherpaEngine(
     }
 
     private fun checkResult() {
-        if (!isInitialized) return
+        if (!isInitialized || isPaused) return
         val currentStream = stream ?: return
         val currentRecognizer = recognizer ?: return
 
@@ -127,7 +142,7 @@ class SherpaEngine(
     fun startListeningNow() {}
 
     fun acceptAudio(buffer: ShortArray, read: Int) {
-        if (!isInitialized) return
+        if (!isInitialized || isPaused) return
         val currentStream = stream ?: return
         val currentRecognizer = recognizer ?: return
 
