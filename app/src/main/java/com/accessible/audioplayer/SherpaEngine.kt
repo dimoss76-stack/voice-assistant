@@ -16,6 +16,7 @@ class SherpaEngine(
     private var recognizer: OnlineRecognizer? = null
     private var stream: OnlineStream? = null
     private var isInitialized = false
+    private var packetCounter = 0
 
     private var lastText = ""
     private val handler = Handler(Looper.getMainLooper())
@@ -57,11 +58,11 @@ class SherpaEngine(
                         joiner = joinerFile.absolutePath,
                     ),
                     tokens = tokensFile.absolutePath,
-                    numThreads = 2,
+                    numThreads = 1, // УМЕНЬШЕНО до 1, чтобы снизить нагрузку
                     provider = "cpu",
                     debug = true,
                 ),
-                // Полностью отключаем endpoint, чтобы он не спамил
+                // Отключаем endpoint, чтобы он не спамил
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 0.0f, 0.0f),
                     rule2 = EndpointRule(false, 0.0f, 0.0f),
@@ -87,22 +88,22 @@ class SherpaEngine(
         stream?.release()
         stream = recognizer?.createStream()
         lastText = ""
+        packetCounter = 0
         
-        // Запускаем таймеры: сброс стрима каждые 5 секунд и проверка результата
         handler.removeCallbacks(resetStreamRunnable)
-        handler.postDelayed(resetStreamRunnable, 5000L)
+        handler.postDelayed(resetStreamRunnable, 3000L) // СБРОС КАЖДЫЕ 3 СЕКУНДЫ
         handler.removeCallbacks(checkResultRunnable)
         handler.postDelayed(checkResultRunnable, 1000L)
     }
 
     private fun resetStream() {
         if (!isInitialized) return
-        Log.e("MYVOSK", "Sherpa: принудительный сброс стрима (профилактика краша)")
+        Log.e("MYVOSK", "Sherpa: принудительный сброс стрима (пакетов обработано: $packetCounter)")
         stream?.release()
         stream = recognizer?.createStream()
         lastText = ""
-        // Перезапускаем таймер
-        handler.postDelayed(resetStreamRunnable, 5000L)
+        packetCounter = 0
+        handler.postDelayed(resetStreamRunnable, 3000L)
     }
 
     private fun checkResult() {
@@ -116,7 +117,6 @@ class SherpaEngine(
             Log.e("MYVOSK", "Sherpa распознал: '$text'")
             onResultCallback(text)
         }
-        // Проверяем каждую секунду
         handler.postDelayed(checkResultRunnable, 1000L)
     }
 
@@ -130,6 +130,11 @@ class SherpaEngine(
         if (!isInitialized) return
         val currentStream = stream ?: return
         val currentRecognizer = recognizer ?: return
+
+        packetCounter++
+        if (packetCounter % 50 == 0) {
+            Log.e("MYVOSK", "Sherpa: обработано пакетов: $packetCounter")
+        }
 
         val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
         currentStream.acceptWaveform(floatBuffer, 16000)
