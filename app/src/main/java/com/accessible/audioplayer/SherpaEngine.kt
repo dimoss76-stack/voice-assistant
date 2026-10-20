@@ -44,10 +44,15 @@ class SherpaEngine(
                     numThreads = 2,
                     provider = "cpu",
                     debug = true,
+                    // ВАЖНО: указываем тип модели для Zipformer
+                    modelType = "zipformer" 
                 ),
+                // ИСПРАВЛЕННЫЙ EndpointConfig:
+                // rule1: срабатывает только если тишина длится 2.4 секунды
+                // rule2 и rule3 отключены, чтобы не сбрасывать фразу на каждом пакете
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 2.4f, 0.0f),
-                    rule2 = EndpointRule(true, 1.2f, 0.0f),
+                    rule2 = EndpointRule(false, 0.0f, 0.0f),
                     rule3 = EndpointRule(false, 0.0f, 0.0f),
                 ),
                 decodingMethod = "greedy_search"
@@ -97,7 +102,7 @@ class SherpaEngine(
         if (readyCount > 0) {
             decodeCount++
             if (decodeCount % 50 == 0) {
-                Log.e("MYVOSK", "Sherpa: декодировано $decodeCount раз (последний readyCount=$readyCount)")
+                Log.e("MYVOSK", "Sherpa: декодировано $decodeCount раз")
             }
         }
 
