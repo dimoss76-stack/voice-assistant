@@ -43,8 +43,6 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
-    // ========== TTS ==========
-    // Короткие фразы: 2 сек + 0.5 сек эхо
     fun speakOutShort(text: String) {
         Log.e("MYVOSK", "speakOutShort: $text")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -55,22 +53,19 @@ class TtsSpeaker(private val context: Context) : TextToSpeech.OnInitListener {
         } else {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         }
-        val duration = (text.length * 100L + 1000L).coerceAtLeast(2000L)
+        val duration = (text.length * 120L + 1500L).coerceAtLeast(2500L)
         val ttsSpeakingUntil = System.currentTimeMillis() + duration
-        ignoreUntil = ttsSpeakingUntil + 500L
+        ignoreUntil = ttsSpeakingUntil + 800L
     }
 
-    // Длинные фразы: пропорционально + 2 сек эхо (эхо TTS может длиться долго)
     fun speakOut(text: String) {
         Log.e("MYVOSK", "speakOut: $text")
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        val duration = (text.length * 80L + 800L).coerceAtLeast(2000L)
+        val duration = (text.length * 100L + 2000L).coerceAtLeast(3000L)
         val ttsSpeakingUntil = System.currentTimeMillis() + duration
-        // +2000 — чтобы точно заблокировать эхо длинных фраз
-        ignoreUntil = ttsSpeakingUntil + 2000L
+        ignoreUntil = ttsSpeakingUntil + 1200L
     }
 
-    // ========== БИПЫ ==========
     fun beepListen() {
         try {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
