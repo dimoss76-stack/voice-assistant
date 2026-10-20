@@ -31,7 +31,6 @@ class SherpaEngine(
         }
 
         try {
-            // ИСПРАВЛЕННАЯ КОНФИГУРАЦИЯ
             val config = OnlineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
                 modelConfig = OnlineModelConfig(
@@ -43,13 +42,13 @@ class SherpaEngine(
                     tokens = File(modelDir, "lang/tokens.txt").absolutePath,
                     numThreads = 2,
                     provider = "cpu",
-                    debug = true, // <-- ИСПРАВЛЕНО: Boolean, а не Int
+                    debug = true,
                 ),
-                // Упрощенные правила детекции конца фразы
+                // Упрощаем: включаем endpointing, но разрешаем забирать текст в любой момент
                 endpointConfig = EndpointConfig(
-                    rule1 = EndpointRule(false, 2.4f, 0.0f), // <-- ИСПРАВЛЕНО: Float
-                    rule2 = EndpointRule(true, 1.2f, 0.0f),   // <-- ИСПРАВЛЕНО: Float
-                    rule3 = EndpointRule(false, 0.0f, 0.0f),  // <-- ИСПРАВЛЕНО: Float
+                    rule1 = EndpointRule(false, 2.4f, 0.0f),
+                    rule2 = EndpointRule(true, 1.2f, 0.0f),
+                    rule3 = EndpointRule(false, 0.0f, 0.0f),
                 ),
                 decodingMethod = "greedy_search"
             )
@@ -80,21 +79,29 @@ class SherpaEngine(
         // Ничего не делаем
     }
 
-    // ИСПРАВЛЕНО: локальная переменная для умного приведения типов (smart cast)
+    // ИСПРАВЛЕННЫЙ МЕТОД
     fun acceptAudio(buffer: ShortArray, read: Int) {
         if (!isInitialized) return
         val currentStream = stream ?: return
-        
+        val currentRecognizer = recognizer ?: return
+
         val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
         currentStream.acceptWaveform(floatBuffer, 16000)
-        
-        val currentRecognizer = recognizer ?: return
+
+        // Принудительный декодинг (важно!)
+        while (currentRecognizer.isReady(currentStream)) {
+            currentRecognizer.decode(currentStream)
+        }
+
+        // Забираем текст, если он появился, даже без endpoint
+        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase()
+        if (!text.isNullOrEmpty()) {
+            Log.e("MYVOSK", "Sherpa распознал: '$text'")
+            onResultCallback(text)
+        }
+
+        // Если endpoint (конец фразы) — сбрасываем стрим
         if (currentRecognizer.isEndpoint(currentStream)) {
-            val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase()
-            if (!text.isNullOrEmpty()) {
-                Log.e("MYVOSK", "Sherpa распознал: '$text'")
-                onResultCallback(text)
-            }
             currentStream.release()
             stream = currentRecognizer.createStream()
         }
