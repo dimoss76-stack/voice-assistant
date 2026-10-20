@@ -44,7 +44,6 @@ class VoskEngine(
     }
 
     private fun loadSmallModel() {
-        // Используем StorageService для маленькой модели из assets
         try {
             org.vosk.android.StorageService.unpack(context, "model-ru", "model",
                 { m: Model ->
@@ -68,6 +67,57 @@ class VoskEngine(
         return File(File(publicDownloads, "VoiceAssistant"), "vosk-model-small-streaming-ru")
     }
 
+    // ========== ЗАПИСЬ СЛОВА (для настроек) ==========
+    fun recordSingleWord(durationMs: Long = 5000L): String {
+        val m = model ?: return ""
+        var audioRecord: android.media.AudioRecord? = null
+        var recognizer: Recognizer? = null
+        try {
+            val sampleRate = 16000
+            val bufferSize = android.media.AudioRecord.getMinBufferSize(
+                sampleRate, android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            audioRecord = android.media.AudioRecord(
+                android.media.MediaRecorder.AudioSource.MIC, sampleRate,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT, bufferSize * 4
+            )
+            if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
+                return ""
+            }
+            recognizer = Recognizer(m, 16000.0f)
+            audioRecord.startRecording()
+            val buffer = ShortArray(bufferSize)
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < durationMs) {
+                val read = audioRecord.read(buffer, 0, buffer.size)
+                if (read > 0) recognizer.acceptWaveForm(buffer, read)
+            }
+            val json = recognizer.finalResult
+            return extractText(json)
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка записи слова: ${e.message}", e)
+            return ""
+        } finally {
+            try { audioRecord?.stop() } catch (_: Exception) {}
+            try { audioRecord?.release() } catch (_: Exception) {}
+            try { recognizer?.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun extractText(json: String): String {
+        return try {
+            val start = json.indexOf("\"text\"")
+            if (start < 0) return ""
+            val afterColon = json.indexOf(":", start) + 1
+            val firstQuote = json.indexOf("\"", afterColon) + 1
+            val secondQuote = json.indexOf("\"", firstQuote)
+            if (firstQuote <= 0 || secondQuote <= 0) return ""
+            json.substring(firstQuote, secondQuote).trim()
+        } catch (e: Exception) { "" }
+    }
+
     // ========== ЗАПУСК РАСПОЗНАВАНИЯ ==========
     fun startListening(activation: String, confirm: String, shutdown: String) {
         try {
@@ -76,11 +126,9 @@ class VoskEngine(
                 val isStreaming = settings.modelMode == 1 && getBigModelDir().exists()
 
                 val recognizer = if (isStreaming) {
-                    // ВАЖНО: Streaming-модель НЕ ПОДДЕРЖИВАЕТ грамматику. Vosk падает в Model::Ref().
                     Log.e("MYVOSK", "Streaming-модель: распознаватель БЕЗ грамматики")
                     Recognizer(m, 16000.0f)
                 } else {
-                    // Для маленькой модели используем грамматику для точности
                     val grammar = """[
                         "$activation",
                         "$confirm",
