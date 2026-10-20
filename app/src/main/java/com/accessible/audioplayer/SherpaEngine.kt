@@ -2,6 +2,8 @@ package com.accessible.audioplayer
 
 import android.content.Context
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.k2fsa.sherpa.onnx.*
 import java.io.File
@@ -14,6 +16,11 @@ class SherpaEngine(
     private var recognizer: OnlineRecognizer? = null
     private var stream: OnlineStream? = null
     private var isInitialized = false
+
+    private var lastText = ""
+    private var lastTextTime = 0L
+    private val handler = Handler(Looper.getMainLooper())
+    private val resultCheckRunnable = Runnable { checkResult() }
 
     var onModelReady: (() -> Unit)? = null
 
@@ -30,16 +37,10 @@ class SherpaEngine(
             return
         }
 
-        // Проверяем наличие файлов
         val encoderFile = File(modelDir, "am-onnx/encoder.int8.onnx")
         val decoderFile = File(modelDir, "am-onnx/decoder.int8.onnx")
         val joinerFile = File(modelDir, "am-onnx/joiner.int8.onnx")
         val tokensFile = File(modelDir, "lang/tokens.txt")
-
-        Log.e("MYVOSK", "encoder: ${encoderFile.exists()} (${encoderFile.absolutePath})")
-        Log.e("MYVOSK", "decoder: ${decoderFile.exists()}")
-        Log.e("MYVOSK", "joiner: ${joinerFile.exists()}")
-        Log.e("MYVOSK", "tokens: ${tokensFile.exists()}")
 
         if (!encoderFile.exists() || !decoderFile.exists() || !joinerFile.exists() || !tokensFile.exists()) {
             onErrorCallback(Exception("Не все файлы модели на месте"))
@@ -47,7 +48,6 @@ class SherpaEngine(
         }
 
         try {
-            Log.e("MYVOSK", "Создаю конфигурацию...")
             val config = OnlineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
                 modelConfig = OnlineModelConfig(
@@ -60,44 +60,36 @@ class SherpaEngine(
                     numThreads = 2,
                     provider = "cpu",
                     debug = true,
-                    // Убираем modelType, чтобы проверить, не в нём ли дело
                 ),
+                // Отключаем endpoint полностью, чтобы он не сбрасывал стрим
                 endpointConfig = EndpointConfig(
-                    rule1 = EndpointRule(false, 2.4f, 0.0f),
+                    rule1 = EndpointRule(false, 0.0f, 0.0f),
                     rule2 = EndpointRule(false, 0.0f, 0.0f),
                     rule3 = EndpointRule(false, 0.0f, 0.0f),
                 ),
                 decodingMethod = "greedy_search"
             )
 
-            Log.e("MYVOSK", "Создаю OnlineRecognizer...")
             recognizer = OnlineRecognizer(null, config)
-            Log.e("MYVOSK", "OnlineRecognizer создан")
-            
             stream = recognizer?.createStream()
-            Log.e("MYVOSK", "Stream создан")
-            
             isInitialized = true
             Log.e("MYVOSK", "✅ Sherpa-ONNX успешно инициализирован")
             onModelReady?.invoke()
         } catch (e: Exception) {
             Log.e("MYVOSK", "❌ Ошибка инициализации Sherpa: ${e.message}", e)
             onErrorCallback(e)
-        } catch (t: Throwable) {
-            // Ловим даже ошибки нативного уровня (OutOfMemoryError и т.д.)
-            Log.e("MYVOSK", "❌ КРИТИЧЕСКАЯ ошибка (Throwable): ${t.message}", t)
-            onErrorCallback(Exception("Критическая ошибка: ${t.message}"))
         }
     }
 
     fun startListening(activation: String, confirm: String, shutdown: String) {
-        if (!isInitialized) {
-            Log.e("MYVOSK", "Sherpa не инициализирован, пропускаю startListening")
-            return
-        }
+        if (!isInitialized) return
         Log.e("MYVOSK", "Sherpa: старт прослушивания")
         stream?.release()
         stream = recognizer?.createStream()
+        lastText = ""
+        lastTextTime = System.currentTimeMillis()
+        handler.removeCallbacks(resultCheckRunnable)
+        handler.postDelayed(resultCheckRunnable, 2000L) // Проверка через 2 секунды
     }
 
     fun prepareListeningForNames(names: List<String>) {
@@ -118,23 +110,36 @@ class SherpaEngine(
             currentRecognizer.decode(currentStream)
         }
 
-        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase()
-        if (!text.isNullOrEmpty()) {
+        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase() ?: ""
+        if (text.isNotEmpty() && text != lastText) {
+            lastText = text
+            lastTextTime = System.currentTimeMillis()
+        }
+    }
+
+    private fun checkResult() {
+        if (!isInitialized) return
+        val currentStream = stream ?: return
+        val currentRecognizer = recognizer ?: return
+
+        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase() ?: ""
+        if (text.isNotEmpty()) {
             Log.e("MYVOSK", "Sherpa распознал: '$text'")
             onResultCallback(text)
-        }
-
-        if (currentRecognizer.isEndpoint(currentStream)) {
-            Log.e("MYVOSK", "Sherpa: конец фразы")
+            // Сбрасываем стрим, чтобы начать новую фразу
             currentStream.release()
             stream = currentRecognizer.createStream()
+            lastText = ""
         }
+        // Запускаем проверку снова
+        handler.postDelayed(resultCheckRunnable, 2000L)
     }
 
     fun startListeningForHangup() { startListening("", "", "") }
     fun startListeningForStop() { startListening("", "", "") }
 
     fun stop() {
+        handler.removeCallbacks(resultCheckRunnable)
         stream?.release()
         stream = null
     }
