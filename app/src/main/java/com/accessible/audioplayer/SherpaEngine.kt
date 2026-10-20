@@ -14,6 +14,7 @@ class SherpaEngine(
     private var recognizer: OnlineRecognizer? = null
     private var stream: OnlineStream? = null
     private var isInitialized = false
+    private var decodeCount = 0
 
     var onModelReady: (() -> Unit)? = null
 
@@ -44,7 +45,6 @@ class SherpaEngine(
                     provider = "cpu",
                     debug = true,
                 ),
-                // Упрощаем: включаем endpointing, но разрешаем забирать текст в любой момент
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 2.4f, 0.0f),
                     rule2 = EndpointRule(true, 1.2f, 0.0f),
@@ -79,7 +79,6 @@ class SherpaEngine(
         // Ничего не делаем
     }
 
-    // ИСПРАВЛЕННЫЙ МЕТОД
     fun acceptAudio(buffer: ShortArray, read: Int) {
         if (!isInitialized) return
         val currentStream = stream ?: return
@@ -88,20 +87,28 @@ class SherpaEngine(
         val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
         currentStream.acceptWaveform(floatBuffer, 16000)
 
-        // Принудительный декодинг (важно!)
+        // Декодируем, пока это возможно
+        var readyCount = 0
         while (currentRecognizer.isReady(currentStream)) {
             currentRecognizer.decode(currentStream)
+            readyCount++
+        }
+        
+        if (readyCount > 0) {
+            decodeCount++
+            if (decodeCount % 50 == 0) {
+                Log.e("MYVOSK", "Sherpa: декодировано $decodeCount раз (последний readyCount=$readyCount)")
+            }
         }
 
-        // Забираем текст, если он появился, даже без endpoint
         val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase()
         if (!text.isNullOrEmpty()) {
             Log.e("MYVOSK", "Sherpa распознал: '$text'")
             onResultCallback(text)
         }
 
-        // Если endpoint (конец фразы) — сбрасываем стрим
         if (currentRecognizer.isEndpoint(currentStream)) {
+            Log.e("MYVOSK", "Sherpa: достигнут конец фразы (endpoint)")
             currentStream.release()
             stream = currentRecognizer.createStream()
         }
