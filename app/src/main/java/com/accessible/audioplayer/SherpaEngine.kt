@@ -21,7 +21,6 @@ class SherpaEngine(
 
     private var lastText = ""
     private val handler = Handler(Looper.getMainLooper())
-    private val resetStreamRunnable = Runnable { resetStream() }
     private val checkResultRunnable = Runnable { checkResult() }
 
     var onModelReady: (() -> Unit)? = null
@@ -61,7 +60,7 @@ class SherpaEngine(
                     tokens = tokensFile.absolutePath,
                     numThreads = 1,
                     provider = "cpu",
-                    debug = true,
+                    debug = false, // отключаем debug, чтобы снизить нагрузку
                 ),
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 0.0f, 0.0f),
@@ -90,35 +89,25 @@ class SherpaEngine(
         stream = recognizer?.createStream()
         lastText = ""
         packetCounter = 0
-        
-        handler.removeCallbacks(resetStreamRunnable)
-        handler.postDelayed(resetStreamRunnable, 3000L)
         handler.removeCallbacks(checkResultRunnable)
-        handler.postDelayed(checkResultRunnable, 1000L)
+        handler.postDelayed(checkResultRunnable, 300L) // проверка каждые 300 мс
     }
 
     fun pauseListening() {
         Log.e("MYVOSK", "Sherpa: пауза (обработка команды)")
         isPaused = true
-        handler.removeCallbacks(resetStreamRunnable)
         handler.removeCallbacks(checkResultRunnable)
     }
 
     fun resumeListening() {
         Log.e("MYVOSK", "Sherpa: возобновление")
         isPaused = false
-        handler.postDelayed(resetStreamRunnable, 3000L)
-        handler.postDelayed(checkResultRunnable, 1000L)
-    }
-
-    private fun resetStream() {
-        if (!isInitialized || isPaused) return
-        Log.e("MYVOSK", "Sherpa: принудительный сброс стрима (пакетов обработано: $packetCounter)")
+        // Очищаем буфер, чтобы не накапливать эхо
         stream?.release()
         stream = recognizer?.createStream()
         lastText = ""
         packetCounter = 0
-        handler.postDelayed(resetStreamRunnable, 3000L)
+        handler.postDelayed(checkResultRunnable, 300L)
     }
 
     private fun checkResult() {
@@ -132,15 +121,13 @@ class SherpaEngine(
             Log.e("MYVOSK", "Sherpa распознал: '$text'")
             onResultCallback(text)
             
-            // ОЧИЩАЕМ СТРИМ ПОСЛЕ ВЫДАЧИ РЕЗУЛЬТАТА
-            // Создаём новый стрим, чтобы не накапливать текст
+            // Очищаем стрим после выдачи результата
             currentStream.release()
             stream = currentRecognizer.createStream()
             lastText = ""
             packetCounter = 0
-            Log.e("MYVOSK", "Sherpa: стрим очищен после выдачи результата")
         }
-        handler.postDelayed(checkResultRunnable, 1000L)
+        handler.postDelayed(checkResultRunnable, 300L)
     }
 
     fun prepareListeningForNames(names: List<String>) {
@@ -155,9 +142,6 @@ class SherpaEngine(
         val currentRecognizer = recognizer ?: return
 
         packetCounter++
-        if (packetCounter % 50 == 0) {
-            Log.e("MYVOSK", "Sherpa: обработано пакетов: $packetCounter")
-        }
 
         val floatBuffer = FloatArray(read) { buffer[it] / 32768.0f }
         currentStream.acceptWaveform(floatBuffer, 16000)
@@ -171,7 +155,6 @@ class SherpaEngine(
     fun startListeningForStop() { startListening("", "", "") }
 
     fun stop() {
-        handler.removeCallbacks(resetStreamRunnable)
         handler.removeCallbacks(checkResultRunnable)
         stream?.release()
         stream = null
