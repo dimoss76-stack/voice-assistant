@@ -18,9 +18,9 @@ class SherpaEngine(
     private var isInitialized = false
 
     private var lastText = ""
-    private var lastTextTime = 0L
     private val handler = Handler(Looper.getMainLooper())
-    private val resultCheckRunnable = Runnable { checkResult() }
+    private val resetStreamRunnable = Runnable { resetStream() }
+    private val checkResultRunnable = Runnable { checkResult() }
 
     var onModelReady: (() -> Unit)? = null
 
@@ -61,7 +61,7 @@ class SherpaEngine(
                     provider = "cpu",
                     debug = true,
                 ),
-                // Отключаем endpoint полностью, чтобы он не сбрасывал стрим
+                // Полностью отключаем endpoint, чтобы он не спамил
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 0.0f, 0.0f),
                     rule2 = EndpointRule(false, 0.0f, 0.0f),
@@ -87,9 +87,37 @@ class SherpaEngine(
         stream?.release()
         stream = recognizer?.createStream()
         lastText = ""
-        lastTextTime = System.currentTimeMillis()
-        handler.removeCallbacks(resultCheckRunnable)
-        handler.postDelayed(resultCheckRunnable, 2000L) // Проверка через 2 секунды
+        
+        // Запускаем таймеры: сброс стрима каждые 5 секунд и проверка результата
+        handler.removeCallbacks(resetStreamRunnable)
+        handler.postDelayed(resetStreamRunnable, 5000L)
+        handler.removeCallbacks(checkResultRunnable)
+        handler.postDelayed(checkResultRunnable, 1000L)
+    }
+
+    private fun resetStream() {
+        if (!isInitialized) return
+        Log.e("MYVOSK", "Sherpa: принудительный сброс стрима (профилактика краша)")
+        stream?.release()
+        stream = recognizer?.createStream()
+        lastText = ""
+        // Перезапускаем таймер
+        handler.postDelayed(resetStreamRunnable, 5000L)
+    }
+
+    private fun checkResult() {
+        if (!isInitialized) return
+        val currentStream = stream ?: return
+        val currentRecognizer = recognizer ?: return
+
+        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase() ?: ""
+        if (text.isNotEmpty() && text != lastText) {
+            lastText = text
+            Log.e("MYVOSK", "Sherpa распознал: '$text'")
+            onResultCallback(text)
+        }
+        // Проверяем каждую секунду
+        handler.postDelayed(checkResultRunnable, 1000L)
     }
 
     fun prepareListeningForNames(names: List<String>) {
@@ -109,37 +137,14 @@ class SherpaEngine(
         while (currentRecognizer.isReady(currentStream)) {
             currentRecognizer.decode(currentStream)
         }
-
-        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase() ?: ""
-        if (text.isNotEmpty() && text != lastText) {
-            lastText = text
-            lastTextTime = System.currentTimeMillis()
-        }
-    }
-
-    private fun checkResult() {
-        if (!isInitialized) return
-        val currentStream = stream ?: return
-        val currentRecognizer = recognizer ?: return
-
-        val text = currentRecognizer.getResult(currentStream)?.text?.trim()?.lowercase() ?: ""
-        if (text.isNotEmpty()) {
-            Log.e("MYVOSK", "Sherpa распознал: '$text'")
-            onResultCallback(text)
-            // Сбрасываем стрим, чтобы начать новую фразу
-            currentStream.release()
-            stream = currentRecognizer.createStream()
-            lastText = ""
-        }
-        // Запускаем проверку снова
-        handler.postDelayed(resultCheckRunnable, 2000L)
     }
 
     fun startListeningForHangup() { startListening("", "", "") }
     fun startListeningForStop() { startListening("", "", "") }
 
     fun stop() {
-        handler.removeCallbacks(resultCheckRunnable)
+        handler.removeCallbacks(resetStreamRunnable)
+        handler.removeCallbacks(checkResultRunnable)
         stream?.release()
         stream = null
     }
