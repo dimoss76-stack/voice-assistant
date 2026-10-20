@@ -19,77 +19,31 @@ class VoskEngine(
 
     private var model: Model? = null
     private var speechService: SpeechService? = null
-    private var isUsingBigModel = false  // Флаг: реально ли загружена большая модель
 
     var onModelReady: (() -> Unit)? = null
 
     fun init() {
-        Log.e("MYVOSK", "=== ИНИЦИАЛИЗАЦИЯ VOSK ===")
-        val settings = VoiceSettings(context)
-        val bigModelDir = getBigModelDir()
-        val useBigModel = settings.modelMode == 1 && bigModelDir.exists()
-
-        Log.e("MYVOSK", "Режим в настройках: modelMode=${settings.modelMode}")
-        Log.e("MYVOSK", "Путь к большой модели: ${bigModelDir.absolutePath}")
-        Log.e("MYVOSK", "Большая модель существует: ${bigModelDir.exists()}")
-        Log.e("MYVOSK", "Использовать большую модель: $useBigModel")
-
-        if (useBigModel) {
-            Log.e("MYVOSK", "Попытка загрузить БОЛЬШУЮ модель...")
-            try {
-                // ПРОВЕРКА: что лежит в папке?
-                if (bigModelDir.exists()) {
-                    Log.e("MYVOSK", "Содержимое папки большой модели:")
-                    bigModelDir.listFiles()?.forEach { Log.e("MYVOSK", " - ${it.name}") }
-                }
-
-                model = Model(bigModelDir.absolutePath)
-                isUsingBigModel = true
-                Log.e("MYVOSK", "✅ БОЛЬШАЯ модель успешно загружена")
-                onModelReady?.invoke()
-            } catch (e: IOException) {
-                Log.e("MYVOSK", "❌ Ошибка загрузки большой модели: ${e.message}. Откат на маленькую.")
-                loadSmallModel()
-            }
-        } else {
-            Log.e("MYVOSK", "Загрузка МАЛЕНЬКОЙ модели из assets...")
-            loadSmallModel()
-        }
-    }
-
-    private fun loadSmallModel() {
+        Log.e("MYVOSK", "Инициализация Vosk (маленькая модель)...")
         try {
-            Log.e("MYVOSK", "Вызов StorageService.unpack для маленькой модели...")
             StorageService.unpack(context, "model-ru", "model",
                 { m: Model ->
                     model = m
-                    isUsingBigModel = false
-                    Log.e("MYVOSK", "✅ МАЛЕНЬКАЯ модель успешно загружена из assets")
+                    Log.e("MYVOSK", "✅ Маленькая модель успешно загружена")
                     onModelReady?.invoke()
                 },
                 { exception: IOException ->
-                    Log.e("MYVOSK", "❌ Ошибка загрузки маленькой модели: ${exception.message}", exception)
+                    Log.e("MYVOSK", "❌ Ошибка модели: ${exception.message}", exception)
                     onErrorCallback(exception)
                 }
             )
         } catch (e: Exception) {
-            Log.e("MYVOSK", "❌ Исключение при загрузке маленькой модели: ${e.message}", e)
+            Log.e("MYVOSK", "❌ Исключение: ${e.message}", e)
             onErrorCallback(e)
         }
     }
 
-    fun getBigModelDir(): File {
-        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        return File(File(publicDownloads, "VoiceAssistant"), "vosk-model-small-streaming-ru")
-    }
-
-    // ========== ЗАПИСЬ СЛОВА (для настроек) ==========
     fun recordSingleWord(durationMs: Long = 5000L): String {
-        val m = model ?: run {
-            Log.e("MYVOSK", "recordSingleWord: модель не загружена")
-            return ""
-        }
-        Log.e("MYVOSK", "recordSingleWord: начало записи (${durationMs}мс)")
+        val m = model ?: return ""
         var audioRecord: android.media.AudioRecord? = null
         var recognizer: Recognizer? = null
         try {
@@ -104,7 +58,6 @@ class VoskEngine(
                 android.media.AudioFormat.ENCODING_PCM_16BIT, bufferSize * 4
             )
             if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
-                Log.e("MYVOSK", "recordSingleWord: AudioRecord не инициализирован")
                 return ""
             }
             recognizer = Recognizer(m, 16000.0f)
@@ -116,11 +69,9 @@ class VoskEngine(
                 if (read > 0) recognizer.acceptWaveForm(buffer, read)
             }
             val json = recognizer.finalResult
-            val text = extractText(json)
-            Log.e("MYVOSK", "recordSingleWord: распознано '$text'")
-            return text
+            return extractText(json)
         } catch (e: Exception) {
-            Log.e("MYVOSK", "recordSingleWord: ошибка ${e.message}", e)
+            Log.e("MYVOSK", "Ошибка записи слова: ${e.message}", e)
             return ""
         } finally {
             try { audioRecord?.stop() } catch (_: Exception) {}
@@ -141,43 +92,32 @@ class VoskEngine(
         } catch (e: Exception) { "" }
     }
 
-    // ========== ЗАПУСК РАСПОЗНАВАНИЯ ==========
     fun startListening(activation: String, confirm: String, shutdown: String) {
-        Log.e("MYVOSK", "=== startListening ===")
-        Log.e("MYVOSK", "isUsingBigModel=$isUsingBigModel")
         try {
-            model?.let { m ->
-                val recognizer = if (isUsingBigModel) {
-                    Log.e("MYVOSK", "Создаю Recognizer БЕЗ грамматики (большая модель)")
-                    Recognizer(m, 16000.0f)
-                } else {
-                    val grammar = """[
-                        "$activation",
-                        "$confirm",
-                        "$shutdown",
-                        "время", "часы", "час", "сколько",
-                        "дата", "день", "число",
-                        "да", "нет", "ответь", "сбрось", "отклони",
-                        "[unk]"
-                    ]"""
-                    Log.e("MYVOSK", "Создаю Recognizer С грамматикой (маленькая модель)")
-                    Log.e("MYVOSK", "Грамматика: $grammar")
-                    Recognizer(m, 16000.0f, grammar)
-                }
-
+            model?.let {
+                val grammar = """[
+                    "$activation", "$confirm", "$shutdown",
+                    "время", "часы", "час", "сколько",
+                    "дата", "день", "число",
+                    "да", "нет", "ответь", "сбрось", "отклони",
+                    "позвони", "позвонить", "набери", "набрать",
+                    "контакты", "список", "покажи",
+                    "отмена", "отменить",
+                    "[unk]"
+                ]"""
+                val rec = Recognizer(it, 16000.0f, grammar)
                 speechService?.stop()
                 speechService?.shutdown()
-                speechService = SpeechService(recognizer, 16000.0f)
+                speechService = SpeechService(rec, 16000.0f)
                 speechService?.startListening(this)
-                Log.e("MYVOSK", "Слушание запущено")
-            } ?: Log.e("MYVOSK", "ОШИБКА: model == null в startListening")
+                Log.e("MYVOSK", "Слушание с грамматикой запущено")
+            }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
         }
     }
 
     fun prepareListeningForNames(names: List<String>) {
-        Log.e("MYVOSK", "prepareListeningForNames: ${names.size} имён")
         try {
             speechService?.stop()
             speechService?.shutdown()
@@ -206,7 +146,6 @@ class VoskEngine(
     }
 
     fun startListeningForHangup() {
-        Log.e("MYVOSK", "startListeningForHangup")
         try {
             speechService?.stop()
             speechService?.shutdown()
@@ -226,7 +165,6 @@ class VoskEngine(
     }
 
     fun startListeningForStop() {
-        Log.e("MYVOSK", "startListeningForStop")
         try {
             speechService?.stop()
             speechService?.shutdown()
