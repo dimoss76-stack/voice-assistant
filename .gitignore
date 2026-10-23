@@ -1,0 +1,19 @@
+# Служебные файлы Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Служебные файлы Android Studio / VS Code
+.idea/
+.vscode/
+*.iml
+local.properties
+
+# Служебные файлы системы
+.DS_Store
+Thumbs.db
+
+# Логи и отчеты
+*.log
+*.hprof
+build/reports/
